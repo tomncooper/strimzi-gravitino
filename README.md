@@ -13,33 +13,21 @@ It then walks through the various metadata management operations, related to Kaf
 
 ## Installation
 
-### Install Gravitino via Helm
+This installation assumes you have a working Kubernetes cluster, with adequate resources (minimum 6 CPUS and 16GB of RAM) and have `kubectl` and `helm` installed and configured to access your cluster.
 
-1. Clone the Apache Gravitino repository:
+### Install Gravitino 
+
+1. Run the manifest generation script to create the necessary Kubernetes resources to install Gravitino. The first argument is the git-ref (branch, tag, commit) of the Gravitino release you want to install. The script will create a `manifests/gravitino` directory and place the generated manifest in there:
    ```shell
-   git clone git@github.com:apache/gravitino.git
-   cd gravitino
+   ./gravitino-manifests.sh v1.0.0
    ```
-1. Checkout the version of Gravitino you want to install:
+1. Create the `metadata` namespace (you can specify a different namespace with the second argument to the `gravitino-manifests.sh` script):
    ```shell
-   git checkout v0.9.1
+   kubectl create namespace metadata
    ```
-1. Navigate to the helm chart directory:
+1. Apply the generated manifest to your Kubernetes cluster:
    ```shell
-   cd gravitino/dev/charts
-   ```
-1. Update helm dependencies:
-   ```shell
-   helm dependency update gravitino
-   ```
-1. Package up the helm chart:
-   ```shell
-   helm package gravitino
-   ```
-1. Install the helm chart into the `metadata` namespace and use the mysql state backend:
-   ```shell
-   helm upgrade --install gravitino ./gravitino \
-   -n metadata --create-namespace --set mysql.enabled=true
+   kubectl apply -f manifests/gravitino/gravitino-manifests-<helm-chart-version>.yaml
    ```
 1. To allow local access to the REST API and the web-UI, port-forward the service:
    ```shell
@@ -131,8 +119,8 @@ We can now attach the tags we created to metadata objects within that metalake:
 ```shell
 curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
 -H "Content-Type: application/json" -d '{
-  "tagsToAdd": ["dev"]
-}' http://localhost:8090/api/metalakes/strimzi_kafka/objects/topic/my_cluster_catalog.default.dev-topic-1/tags
+  "tagsToAdd": ["pii"]
+}' http://localhost:8090/api/metalakes/strimzi_kafka/objects/topic/my_cluster_catalog.default.pii-topic-1/tags
 ```
 
 Note: There is a `attach-tags.sh` script in the `example-resources` directory which will attach the appropriate tags to the Kafka topics created earlier, based on their environment (dev, staging, prod) and pii status.
@@ -140,5 +128,5 @@ Note: There is a `attach-tags.sh` script in the `example-resources` directory wh
 You can list all metadata objects with a given tag by using:
 ```shell
 curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-http://localhost:8090/api/metalakes/strimzi_kafka/tags/dev/objects
+http://localhost:8090/api/metalakes/strimzi_kafka/tags/pii/objects
 ```
