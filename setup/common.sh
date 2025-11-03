@@ -11,3 +11,4 @@ NC='\033[0m' # No Color
 GRAVITINO_NAMESPACE="metadata"
 KAFKA_NAMESPACE="kafka"
 KAFKA_CLUSTER_NAME="my-cluster"
+MINIO_OPERATOR_NAMESPACE="minio-operator"
