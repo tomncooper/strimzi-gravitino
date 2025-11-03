@@ -7,7 +7,7 @@ It then walks through the various metadata management operations, related to Kaf
 
 ## Prerequisites
 
-- Kubernetes cluster (1.18+) (eg Minikube)
+- Kubernetes cluster (1.18+) (e.g. Minikube)
 - Helm (3.5+)
 - kubectl (1.18+)
 
@@ -15,11 +15,30 @@ It then walks through the various metadata management operations, related to Kaf
 
 This installation assumes you have a working Kubernetes cluster, with adequate resources (minimum 6 CPUS and 16GB of RAM) and have `kubectl` and `helm` installed and configured to access your cluster.
 
-### Install Gravitino 
+For example, you can use [Minikube](https://minikube.sigs.k8s.io/docs/start/) to create a local Kubernetes cluster for testing purposes:
+
+```shell
+ minikube start --cpus 8 --memory 28G --disk-size 50g
+ ```
+
+### Automated install
+
+You can run the `install.sh` and `setup.sh` scripts, in the `setup-scripts` folder, to automatically install Gravitino, Strimzi Kafka and setup the example topics and tags:
+
+```shell
+./setup/install.sh
+./setup/setup.sh
+```
+
+Alternatively, you can follow the manual installation steps below.
+
+### Manual install
+
+#### Install Gravitino 
 
 1. Run the manifest generation script to create the necessary Kubernetes resources to install Gravitino. The first argument is the git-ref (branch, tag, commit) of the Gravitino release you want to install. The script will create a `manifests/gravitino` directory and place the generated manifest in there:
    ```shell
-   ./gravitino-manifests.sh v1.0.0
+   ./setup/gravitino-manifests.sh v1.0.0
    ```
 1. Create the `metadata` namespace (you can specify a different namespace with the second argument to the `gravitino-manifests.sh` script):
    ```shell
@@ -34,7 +53,7 @@ This installation assumes you have a working Kubernetes cluster, with adequate r
    kubectl -n metadata port-forward svc/gravitino 8090:8090 
    ```
 
-### Install Strimzi Kafka via Helm
+#### Install Strimzi Kafka via Helm
 
 1. Install the Strimzi Kafka operator:
    ```shell
@@ -50,7 +69,7 @@ This installation assumes you have a working Kubernetes cluster, with adequate r
     kubectl -n kafka apply -f example-resources/example-topics.yaml
     ```
 
-## Setup Gravitino
+#### Setup Gravitino
 
 1. Create a metalake to house your Kafka cluster catalogs:
     ```shell
@@ -83,11 +102,11 @@ This installation assumes you have a working Kubernetes cluster, with adequate r
 
 ## Using Gravitino
 
-You can now use the operations described in the Gravitino Kafka Catalog [documentation](https://gravitino.apache.org/docs/0.9.1/manage-massaging-metadata-using-gravitino/) to manage the metadata associated with the Strimzi managed Kafka cluster.
+You can now use the operations described in the Gravitino Kafka Catalog [documentation](https://gravitino.apache.org/docs/1.0.0/manage-massaging-metadata-using-gravitino/) to manage the metadata associated with the Strimzi managed Kafka cluster.
 
 ### Tagging Metadata Objects
 
-In Gravitino, you can create [tags](https://gravitino.apache.org/docs/0.9.1/manage-tags-in-gravitino/) within a metalake, catalog or schema and then attach them to metadata objects.
+In Gravitino, you can create [tags](https://gravitino.apache.org/docs/1.0.0/manage-tags-in-gravitino/) within a metalake, catalog or schema and then attach them to metadata objects.
 
 These tags are hierarchical, meaning that a tag applied to a catalog will be attached to all metadata objects within that catalog.
 

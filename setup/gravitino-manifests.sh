@@ -2,12 +2,15 @@
 
 set -e
 
-# Get the repo root directory
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common configuration
+source "${SCRIPT_DIR}/common.sh"
 
 # Configuration
 GRAVITINO_TAG="${1}"
-NAMESPACE="${2:-metadata}"  # Use second argument or default to 'metadata'
+NAMESPACE="${2:-GRAVITINO_NAMESPACE}"  # Use second argument or default to 'metadata'
 
 if [ -z "${GRAVITINO_TAG}" ]; then
     echo "Usage: $0 <gravitino-tag> [namespace]"
@@ -16,16 +19,10 @@ if [ -z "${GRAVITINO_TAG}" ]; then
     exit 1
 fi
 
-GRAVITINO_SUBMODULE_PATH="${REPO_ROOT}/gravitino"
+GRAVITINO_SUBMODULE_PATH="${SCRIPT_DIR}/gravitino"
 CHARTS_PATH="${GRAVITINO_SUBMODULE_PATH}/dev/charts"
-OUTPUT_DIR="${REPO_ROOT}/manifests/gravitino"
+OUTPUT_DIR="${SCRIPT_DIR}/manifests/gravitino"
 RELEASE_NAME="gravitino"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
 
 echo -e "${GREEN}Starting Gravitino Helm chart extraction...${NC}"
 echo -e "${YELLOW}Gravitino tag: ${GRAVITINO_TAG}${NC}"
@@ -86,6 +83,3 @@ cd "${REPO_ROOT}"
 
 echo -e "${GREEN}✓ Extraction complete!${NC}"
 echo -e "Manifests saved to: ${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
-echo -e "\nTo apply these manifests, run:"
-echo -e "  kubectl create namespace ${NAMESPACE}"
-echo -e "  kubectl apply -f manifests/gravitino/gravitino-manifests-${CHART_VERSION}.yaml"
