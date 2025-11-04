@@ -73,19 +73,6 @@ echo ""
 echo -e "${GREEN}✓ Gravitino setup completed${NC}"
 echo ""
 
-# Verify installation
-echo -e "${BLUE}=== Verifying Installation ===${NC}"
-
-echo -e "${YELLOW}Checking Kafka topics in Gravitino catalog...${NC}"
-TOPICS=$(curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-  -H "Content-Type: application/json" \
-  http://localhost:8090/api/metalakes/strimzi_kafka/catalogs/my_cluster_catalog/schemas/default/topics)
-
-echo "$TOPICS" | jq '.' || echo "$TOPICS"
-echo ""
-
-
-# Setup Gravitino
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Setting up MinIO Tenant (S3 Storage) ${NC}"
 echo -e "${BLUE}========================================${NC}"
@@ -95,6 +82,22 @@ echo -e "${YELLOW}Waiting for MinIO Tenant to be ready...${NC}"
 kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=jsonpath='{status.healthStatus}'=green tenants.minio.min.io myminio --timeout=300s
 echo ""
 echo -e "${GREEN}✓ MinIO Tenant setup completed${NC}"
+echo ""
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Creating MinIO Buckets ${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+echo -e "${YELLOW}Creating bucket list ConfigMap...${NC}"
+kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f ${SCRIPT_DIR}/minio/buckets/bucket-list-configmap.yaml
+
+echo -e "${YELLOW}Running bucket creation job...${NC}"
+kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f ${SCRIPT_DIR}/minio/buckets/create-bucket.yaml
+
+echo -e "${YELLOW}Waiting for bucket creation job to complete...${NC}"
+kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=condition=complete job minio-create-bucket --timeout=300s
+
+echo -e "${GREEN}✓ MinIO buckets created successfully${NC}"
 echo ""
 
 echo -e "${GREEN}========================================${NC}"

@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: minio-tenant  
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for MinIO to be ready
+          until mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}; do
+            echo "Waiting for MinIO to be ready..."
+            sleep 5
+          done
+          
+          # Create buckets from the list
+          while IFS= read -r bucket || [ -n "$bucket" ]; do
+            # Skip empty lines and comments
+            if [ -z "$bucket" ] || [ "${bucket#\#}" != "$bucket" ]; then
+              continue
+            fi
+            
+            echo "Creating bucket: $bucket"
+            mc mb --ignore-existing myminio/$bucket
+          done < /config/buckets.txt
+          
+          echo "All buckets created successfully!"
+        env:
+        - name: MINIO_ENDPOINT
+          value: "https://myminio-hl.minio-tenant.svc.cluster.local:9000"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: storage-user
+              key: CONSOLE_ACCESS_KEY
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: storage-user
+              key: CONSOLE_SECRET_KEY
+        volumeMounts:
+        - name: bucket-list
+          mountPath: /config
+      volumes:
+      - name: bucket-list
+        configMap:
+          name: minio-bucket-list
+  backoffLimit: 3
