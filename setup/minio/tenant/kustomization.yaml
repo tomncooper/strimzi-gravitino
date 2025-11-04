@@ -1,15 +1,7 @@
 resources:
-- https://github.com/minio/operator?ref=v7.1.1
 - https://github.com/minio/operator/examples/kustomization/base?ref=v7.1.1
 
 patches:
-- target:
-    kind: Deployment
-    name: minio-operator
-  patch: |-
-    - op: replace
-      path: /spec/replicas
-      value: 1
 - target: 
     kind: Tenant
     name: myminio

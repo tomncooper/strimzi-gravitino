@@ -84,6 +84,19 @@ TOPICS=$(curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
 echo "$TOPICS" | jq '.' || echo "$TOPICS"
 echo ""
 
+
+# Setup Gravitino
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Setting up MinIO Tenant (S3 Storage) ${NC}"
+echo -e "${BLUE}========================================${NC}"
+kubectl kustomize ${SCRIPT_DIR}/minio/tenant | kubectl apply -f -
+
+echo -e "${YELLOW}Waiting for MinIO Tenant to be ready...${NC}"
+kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=jsonpath='{status.healthStatus}'=green tenants.minio.min.io myminio --timeout=300s
+echo ""
+echo -e "${GREEN}✓ MinIO Tenant setup completed${NC}"
+echo ""
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"

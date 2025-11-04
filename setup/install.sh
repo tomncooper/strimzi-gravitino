@@ -13,9 +13,9 @@ source "${SCRIPT_DIR}/common.sh"
 GRAVITINO_VERSION="${1:-v1.0.0}"
 MINIO_VERSION="${2:-v7.1.1}"
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Gravitino + Strimzi Kafka Installation${NC}"
-echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}=================================================${NC}"
+echo -e "${BLUE}Gravitino, Strimzi, Kafka and MinIO Installation ${NC}"
+echo -e "${BLUE}=================================================${NC}"
 echo ""
 
 # Check prerequisites
@@ -87,7 +87,7 @@ echo ""
 
 # Install MinIO Operator
 echo -e "${BLUE}=== Installing MinIO Operator ===${NC}"
-kubectl kustomize minio | kubectl apply -f -
+kubectl kustomize ${SCRIPT_DIR}/minio/operator | kubectl apply -f -
 
 echo -e "${YELLOW}Waiting for MinIO Operator to be ready...${NC}"
 kubectl -n "${MINIO_OPERATOR_NAMESPACE}" wait --for=condition=available deployment minio-operator --timeout=300s
