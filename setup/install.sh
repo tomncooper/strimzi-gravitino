@@ -53,8 +53,8 @@ else
     kubectl apply -f "${MANIFEST_FILE}"
 fi
 
-echo -e "${YELLOW}Waiting for Gravitino to be ready...${NC}"
-kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment gravitino --timeout=300s
+echo -e "${YELLOW}Waiting for Gravitino to be ready (this can take 5+ minutes)...${NC}"
+kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment gravitino --timeout=420s
 
 echo -e "${GREEN}✓ Gravitino installed successfully${NC}"
 echo ""
