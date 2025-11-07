@@ -43,7 +43,6 @@ git submodule update --init --recursive
 echo -e "${YELLOW}Checking out tag ${GRAVITINO_TAG} in Gravitino submodule...${NC}"
 cd "${GRAVITINO_SUBMODULE_PATH}"
 git checkout "${GRAVITINO_TAG}"
-cd "${REPO_ROOT}"
 
 # Navigate to charts directory
 cd "${CHARTS_PATH}"
@@ -79,7 +78,21 @@ helm template ${RELEASE_NAME} ./${CHART_PACKAGE} \
     --set mysql.enabled=true \
     > "${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
 
-cd "${REPO_ROOT}"
+# Generate kustomization file
+echo -e "${YELLOW}Generating kustomization.yaml...${NC}"
+cat > "${OUTPUT_DIR}/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ${NAMESPACE}
+
+resources:
+  - gravitino-manifests-${CHART_VERSION}.yaml
+EOF
 
 echo -e "${GREEN}✓ Extraction complete!${NC}"
 echo -e "Manifests saved to: ${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
+echo -e "Kustomization saved to: ${OUTPUT_DIR}/kustomization.yaml"
+echo ""
+echo -e "${YELLOW}To apply the manifests, run:${NC}"
+echo -e "  kubectl apply -k ${OUTPUT_DIR}"

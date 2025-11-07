@@ -12,12 +12,17 @@ create_tag_if_not_exists() {
         echo "✓ Tag '${tag_name}' already exists"
     else
         echo "Creating tag '${tag_name}'..."
+        
+        # Build JSON payload conditionally
+        if [ -n "$tag_properties" ]; then
+            json_payload="{\"name\": \"${tag_name}\", \"comment\": \"${tag_comment}\", \"properties\": ${tag_properties}}"
+        else
+            json_payload="{\"name\": \"${tag_name}\", \"comment\": \"${tag_comment}\"}"
+        fi
+        
         curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
-            -H "Content-Type: application/json" -d "{
-                \"name\": \"${tag_name}\",
-                \"comment\": \"${tag_comment}\",
-                \"properties\": ${tag_properties}
-            }" http://localhost:8090/api/metalakes/strimzi_kafka/tags
+            -H "Content-Type: application/json" -d "${json_payload}" \
+            http://localhost:8090/api/metalakes/strimzi_kafka/tags
         echo ""
     fi
 }

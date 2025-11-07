@@ -22,6 +22,8 @@ echo ""
 echo -e "${YELLOW}Checking prerequisites...${NC}"
 command -v kubectl >/dev/null 2>&1 || { echo -e "${RED}Error: kubectl is not installed${NC}" >&2; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo -e "${RED}Error: helm is not installed${NC}" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo -e "${RED}Error: jq is not installed. Install from: https://jqlang.github.io/jq/download/${NC}" >&2; exit 1; }
+command -v mc >/dev/null 2>&1 || { echo -e "${RED}Error: MinIO client (mc) is not installed. Install from:  https://github.com/minio/mc${NC}" >&2; exit 1; }
 echo -e "${GREEN}✓ Prerequisites check passed${NC}"
 echo ""
 
@@ -46,11 +48,10 @@ else
     ${SCRIPT_DIR}/gravitino-manifests.sh "${GRAVITINO_VERSION}" "${GRAVITINO_NAMESPACE}"
 
     echo -e "${YELLOW}Creating ${GRAVITINO_NAMESPACE} namespace...${NC}"
-    kubectl create namespace "${GRAVITINO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create namespace "${GRAVITINO_NAMESPACE}"
 
     echo -e "${YELLOW}Applying Gravitino manifests...${NC}"
-    MANIFEST_FILE=$(ls ${SCRIPT_DIR}/manifests/gravitino/gravitino-manifests-*.yaml | head -n 1)
-    kubectl apply -f "${MANIFEST_FILE}"
+    kubectl apply -k ${SCRIPT_DIR}/gravitino-install
 fi
 
 echo -e "${YELLOW}Waiting for Gravitino to be ready (this can take 5+ minutes)...${NC}"
