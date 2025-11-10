@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source common configuration
 source "${SCRIPT_DIR}/common.sh"
 
+# Gravitino configuration
+METALAKE="demolake"
+
 # Setup Gravitino
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Setting up Kafka Topics ${NC}"
@@ -47,12 +50,12 @@ fi
 
 # Check if metalake exists
 if curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-    http://localhost:8090/api/metalakes/strimzi_kafka 2>/dev/null | grep -q "NoSuchMetalakeException"; then
+    http://localhost:8090/api/metalakes/${METALAKE} 2>/dev/null | grep -q "NoSuchMetalakeException"; then
     echo -e "${YELLOW}Creating metalake...${NC}"
     curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
       -H "Content-Type: application/json" -d '{
-        "name":"strimzi_kafka",
-        "comment":"This metalake holds all Strimzi related metadata",
+        "name":"'"${METALAKE}"'",
+        "comment":"This metalake holds all the demo system metadata",
         "properties":{}
     }' http://localhost:8090/api/metalakes
     echo ""
@@ -62,7 +65,7 @@ fi
 
 # Check if catalog exists
 if curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-    http://localhost:8090/api/metalakes/strimzi_kafka/catalogs/my_cluster_catalog 2>/dev/null | grep -q "NoSuchCatalogException"; then
+    http://localhost:8090/api/metalakes/${METALAKE}/catalogs/my_cluster_catalog 2>/dev/null | grep -q "NoSuchCatalogException"; then
     echo -e "${YELLOW}Adding Kafka cluster as catalog...${NC}"
     curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
       -H "Content-Type: application/json" -d '{
@@ -73,7 +76,7 @@ if curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
         "properties": {
             "bootstrap.servers": "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
         }
-    }' http://localhost:8090/api/metalakes/strimzi_kafka/catalogs
+    }' http://localhost:8090/api/metalakes/${METALAKE}/catalogs
     echo ""
 else
     echo -e "${GREEN}✓ Catalog already exists${NC}"
