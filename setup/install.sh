@@ -13,17 +13,15 @@ source "${SCRIPT_DIR}/common.sh"
 GRAVITINO_VERSION="${1:-v1.0.0}"
 MINIO_VERSION="${2:-v7.1.1}"
 
-echo -e "${BLUE}=================================================${NC}"
-echo -e "${BLUE}Gravitino, Strimzi, Kafka and MinIO Installation ${NC}"
-echo -e "${BLUE}=================================================${NC}"
+echo -e "${BLUE}===========================================================${NC}"
+echo -e "${BLUE}Gravitino, Strimzi, Kafka, MinIO and Postgres Installation ${NC}"
+echo -e "${BLUE}===========================================================${NC}"
 echo ""
 
 # Check prerequisites
 echo -e "${YELLOW}Checking prerequisites...${NC}"
 command -v kubectl >/dev/null 2>&1 || { echo -e "${RED}Error: kubectl is not installed${NC}" >&2; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo -e "${RED}Error: helm is not installed${NC}" >&2; exit 1; }
-command -v jq >/dev/null 2>&1 || { echo -e "${RED}Error: jq is not installed. Install from: https://jqlang.github.io/jq/download/${NC}" >&2; exit 1; }
-command -v mc >/dev/null 2>&1 || { echo -e "${RED}Error: MinIO client (mc) is not installed. Install from:  https://github.com/minio/mc${NC}" >&2; exit 1; }
 echo -e "${GREEN}✓ Prerequisites check passed${NC}"
 echo ""
 
@@ -51,7 +49,7 @@ else
     kubectl create namespace "${GRAVITINO_NAMESPACE}"
 
     echo -e "${YELLOW}Applying Gravitino manifests...${NC}"
-    kubectl apply -k ${SCRIPT_DIR}/gravitino-install
+    kubectl apply -k ${SCRIPT_DIR}/manifests/gravitino
 fi
 
 echo -e "${YELLOW}Waiting for Gravitino to be ready (this can take 5+ minutes)...${NC}"
@@ -92,3 +90,17 @@ kubectl kustomize ${SCRIPT_DIR}/minio/operator | kubectl apply -f -
 
 echo -e "${YELLOW}Waiting for MinIO Operator to be ready...${NC}"
 kubectl -n "${MINIO_OPERATOR_NAMESPACE}" wait --for=condition=available deployment minio-operator --timeout=300s
+
+echo -e "${GREEN}✓ MinIO Operator installed successfully${NC}"
+echo ""
+
+# Install Postgres
+echo -e "${BLUE}=== Installing Postgres ===${NC}"
+kubectl create namespace "${POSTGRES_NAMESPACE}"
+kubectl apply -f ${SCRIPT_DIR}/postgres/postgres-resources.yaml -n "${POSTGRES_NAMESPACE}"
+
+echo -e "${YELLOW}Waiting for Postgres to be ready...${NC}"
+kubectl -n "${POSTGRES_NAMESPACE}" wait --for=condition=available deployment postgres --timeout=300s
+
+echo -e "${GREEN}✓ Postgres installed successfully${NC}"
+echo ""

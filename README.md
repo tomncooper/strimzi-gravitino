@@ -23,7 +23,7 @@ For example, you can use [Minikube](https://minikube.sigs.k8s.io/docs/start/) to
 
 ### Automated install
 
-You can run the `install.sh` and `setup.sh` scripts, in the `setup-scripts` folder, to automatically install Gravitino, Strimzi Kafka and setup the example topics and tags:
+You can run the `install.sh` script, in the `setup` folder, to automatically install Gravitino, Strimzi Kafka and other dependencies. The `setup.sh` will create the necessary, topics, tables and filesets in the installed components and add the relevant entries to Gravitino.:
 
 ```shell
 ./setup/install.sh
@@ -32,77 +32,9 @@ You can run the `install.sh` and `setup.sh` scripts, in the `setup-scripts` fold
 
 Alternatively, you can follow the manual installation steps below.
 
-### Manual install
-
-#### Install Gravitino 
-
-1. Run the manifest generation script to create the necessary Kubernetes resources to install Gravitino. The first argument is the git-ref (branch, tag, commit) of the Gravitino release you want to install. The script will create a `manifests/gravitino` directory and place the generated manifest in there:
-   ```shell
-   ./setup/gravitino-manifests.sh v1.0.0
-   ```
-1. Create the `metadata` namespace (you can specify a different namespace with the second argument to the `gravitino-manifests.sh` script):
-   ```shell
-   kubectl create namespace metadata
-   ```
-1. Apply the generated manifest to your Kubernetes cluster:
-   ```shell
-   kubectl apply -f manifests/gravitino/gravitino-manifests-<helm-chart-version>.yaml
-   ```
-1. To allow local access to the REST API and the web-UI, port-forward the service:
-   ```shell
-   kubectl -n metadata port-forward svc/gravitino 8090:8090 
-   ```
-
-#### Install Strimzi Kafka via Helm
-
-1. Install the Strimzi Kafka operator:
-   ```shell
-   helm install strimzi-cluster-operator oci://quay.io/strimzi-helm/strimzi-kafka-operator -n kafka --create-namespace
-   ```
-1. Install a Kafka cluster:
-   ```shell
-   kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n kafka 
-   ```
-   This will create a Kafka cluster, called `my-cluster` in the `kafka` namespace.
-1. Add Kafka topics to the cluster. You can do this by creating `KafkaTopic` CRs in the `kafka` namespace. Example resource definitions can be found in the `example-topics.yaml` file in the `example-resources` directory:
-    ```shell
-    kubectl -n kafka apply -f example-resources/example-topics.yaml
-    ```
-
-#### Setup Gravitino
-
-1. Create a metalake to house your Kafka cluster catalogs:
-    ```shell
-    curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
-    -H "Content-Type: application/json" -d '{
-        "name":"strimzi_kafka",
-        "comment":"This metalake holds all Strimzi related metadata",
-        "properties":{}
-    }' http://localhost:8090/api/metalakes
-    ```
-1. Add the Kafka Cluster as a catalog to Gravitino:
-    ```shell
-    curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
-    -H "Content-Type: application/json" -d '{
-        "name": "my_cluster_catalog",
-        "type": "MESSAGING",
-        "comment": "Catalog for the my_cluster Kafka cluster",
-        "provider": "kafka",
-        "properties": {
-            "bootstrap.servers": "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
-        }
-    }' http://localhost:8090/api/metalakes/strimzi_kafka/catalogs
-    ```
-1. You can check the newly added Kafka Catalog in the web UI by visiting `http://localhost:8090` or via an API call:
-   ```shell
-    curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-    -H "Content-Type: application/json" \
-    http://localhost:8090/api/metalakes/strimzi_kafka/catalogs/my_cluster_catalog/schemas/default/topics
-   ```
-
 ## Using Gravitino
 
-You can now use the operations described in the Gravitino Kafka Catalog [documentation](https://gravitino.apache.org/docs/1.0.0/manage-massaging-metadata-using-gravitino/) to manage the metadata associated with the Strimzi managed Kafka cluster.
+You can now use the operations described in the Gravitino Kafka Catalog [documentation](https://gravitino.apache.org/docs/1.0.0/manage-massaging-metadata-using-gravitino/) to manage the metadata associated with the Strimzi managed Kafka cluster and other components.
 
 ### Tagging Metadata Objects
 
