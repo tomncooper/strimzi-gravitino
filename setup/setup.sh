@@ -8,9 +8,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source common configuration
 source "${SCRIPT_DIR}/common.sh"
 
-# Gravitino configuration
-METALAKE="demolake"
-
 # Setup Gravitino
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Setting up Kafka Topics ${NC}"
@@ -25,7 +22,7 @@ kubectl -n "${KAFKA_NAMESPACE}" wait --for=condition=Ready kafkatopic --all --ti
 echo -e "${GREEN}✓ All Kafka topics are ready${NC}"
 echo ""
 
-# Setup Gravitino
+# Setup Kafka metadata in Gravitino
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Setting up Kafka metadata in Gravitino ${NC}"
 echo -e "${BLUE}========================================${NC}"
@@ -175,21 +172,59 @@ else
 fi
 echo ""
 
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Setting up PostgreSQL ${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# Check if Postgres deployment is ready
+echo -e "${YELLOW}Checking that Postgres is ready...${NC}"
+kubectl -n "${POSTGRES_NAMESPACE}" wait --for=condition=available deployment postgres --timeout=300s
+
+echo -e "${GREEN}✓ Postgres is ready${NC}"
+echo ""
+
+# Setup port-forward for Postgres
+# Check if port-forward is already running
+if ! pgrep -f "port-forward.*postgres.*5432:5432" > /dev/null; then
+    echo -e "${YELLOW}Starting port-forward to Postgres service...${NC}"
+    kubectl -n "${POSTGRES_NAMESPACE}" port-forward svc/postgres 5432:5432 > /dev/null 2>&1 &
+    POSTGRES_PORT_FORWARD_PID=$!
+    # Wait for port-forward to be ready
+    sleep 3
+    echo -e "${GREEN}✓ Postgres port-forward started${NC}"
+else
+    echo -e "${GREEN}✓ Postgres port-forward already running${NC}"
+    POSTGRES_PORT_FORWARD_PID=$(pgrep -f "port-forward.*postgres.*5432:5432")
+fi
+echo ""
+
+echo -e "${YELLOW}Creating PostgreSQL tables and loading data...${NC}"
+${SCRIPT_DIR}/example-resources/create-tables.sh
+echo ""
+
+echo -e "${YELLOW}Creating Gravitino catalog for PostgreSQL...${NC}"
+${SCRIPT_DIR}/example-resources/create-relational-catalog.sh
+echo ""
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "Gravitino Web UI: ${BLUE}http://localhost:8090${NC}"
 echo -e "MinIO Console: ${BLUE}https://localhost:9001${NC}"
+echo -e "PostgreSQL: ${BLUE}localhost:5432${NC} (Database: testdb, User: admin, Password: admin)"
 echo ""
 echo -e "Port-forward PIDs:"
 echo -e "  Gravitino: ${PORT_FORWARD_PID}"
 echo -e "  MinIO: ${MINIO_PORT_FORWARD_PID}"
+echo -e "  PostgreSQL: ${POSTGRES_PORT_FORWARD_PID}"
 echo ""
 echo -e "To stop the port-forwards, run:"
-echo -e "  ${YELLOW}kill ${PORT_FORWARD_PID} ${MINIO_PORT_FORWARD_PID}${NC}"
+echo -e "  ${YELLOW}kill ${PORT_FORWARD_PID} ${MINIO_PORT_FORWARD_PID} ${POSTGRES_PORT_FORWARD_PID}${NC}"
 echo -e "To restart the Gravitino port-forward, run:"
 echo -e "  ${YELLOW}kubectl -n ${GRAVITINO_NAMESPACE} port-forward svc/gravitino 8090:8090${NC}"
 echo -e "To restart the MinIO port-forward, run:"
 echo -e "  ${YELLOW}kubectl -n ${MINIO_TENANT_NAMESPACE} port-forward svc/myminio-hl 9000:9000${NC}"
+echo -e "To restart the Postgres port-forward, run:"
+echo -e "  ${YELLOW}kubectl -n ${POSTGRES_NAMESPACE} port-forward svc/postgres 5432:5432${NC}"
 echo ""

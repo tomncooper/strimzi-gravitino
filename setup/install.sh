@@ -20,8 +20,9 @@ echo ""
 
 # Check prerequisites
 echo -e "${YELLOW}Checking prerequisites...${NC}"
-command -v kubectl >/dev/null 2>&1 || { echo -e "${RED}Error: kubectl is not installed${NC}" >&2; exit 1; }
-command -v helm >/dev/null 2>&1 || { echo -e "${RED}Error: helm is not installed${NC}" >&2; exit 1; }
+check_prerequisite kubectl
+check_prerequisite helm
+check_prerequisite psql
 echo -e "${GREEN}✓ Prerequisites check passed${NC}"
 echo ""
 

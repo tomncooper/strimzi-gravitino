@@ -1,6 +1,10 @@
 #!/bin/bash
 
-METALAKE = "strimzi_kafka"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common configuration
+source "${SCRIPT_DIR}/../common.sh"
 
 # Function to attach tags to an object if not already associated
 attach_tags_if_not_exists() {

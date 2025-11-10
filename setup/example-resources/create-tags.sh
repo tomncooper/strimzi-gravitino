@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common configuration
+source "${SCRIPT_DIR}/../common.sh"
+
 # Function to create tag if it doesn't exist
 create_tag_if_not_exists() {
     local tag_name=$1
@@ -8,21 +14,21 @@ create_tag_if_not_exists() {
     
     # Check if tag exists
     if curl -s -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-        "http://localhost:8090/api/metalakes/strimzi_kafka/tags/${tag_name}" 2>/dev/null | grep -q "\"name\":\"${tag_name}\""; then
+        "http://localhost:8090/api/metalakes/${METALAKE}/tags/${tag_name}" 2>/dev/null | grep -q "\"name\":\"${tag_name}\""; then
         echo "✓ Tag '${tag_name}' already exists"
     else
         echo "Creating tag '${tag_name}'..."
-        
+
         # Build JSON payload conditionally
         if [ -n "$tag_properties" ]; then
             json_payload="{\"name\": \"${tag_name}\", \"comment\": \"${tag_comment}\", \"properties\": ${tag_properties}}"
         else
             json_payload="{\"name\": \"${tag_name}\", \"comment\": \"${tag_comment}\"}"
         fi
-        
+
         curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
             -H "Content-Type: application/json" -d "${json_payload}" \
-            http://localhost:8090/api/metalakes/strimzi_kafka/tags
+            http://localhost:8090/api/metalakes/${METALAKE}/tags
         echo ""
     fi
 }

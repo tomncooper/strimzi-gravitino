@@ -1,6 +1,11 @@
 #!/bin/bash
 
-METALAKE="strimzi_kafka"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common configuration
+source "${SCRIPT_DIR}/../common.sh"
+
 FILESET_CATALOG_NAME="product_files_catalog_2"
 FILESET_SCHEMA_NAME="product_schema"
 
