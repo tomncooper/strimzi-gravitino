@@ -1,7 +1,7 @@
 #!/bin/bash
 
 METALAKE="strimzi_kafka"
-FILESET_CATALOG_NAME="product_files_catalog"
+FILESET_CATALOG_NAME="product_files_catalog_2"
 FILESET_SCHEMA_NAME="product_schema"
 
 # Check if catalog exists
@@ -24,15 +24,14 @@ else
           "s3-access-key-id": "Y29uc29sZQ==",
           "s3-secret-access-key": "Y29uc29zZTEyMw==",
           "s3-endpoint": "https://myminio-hl.minio-tenant.svc.cluster.local:9000",
-          "filesystem-providers": "s3"
+          "filesystem-providers": "s3",
+          "gravitino.bypass.fs.s3a.path.style.access": "true",
+          "gravitino.bypass.fs.s3a.connection.ssl.enabled": "false"
         }
       }')" \
     http://localhost:8090/api/metalakes/${METALAKE}/catalogs
     echo ""
 fi
-
-echo "Waiting for catalog to be fully registered..."
-sleep 10
 
 # Check if schema exists
 echo "Checking if schema '${FILESET_SCHEMA_NAME}' exists..."

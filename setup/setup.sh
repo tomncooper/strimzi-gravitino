@@ -167,7 +167,7 @@ if mc stat myminio/${BUCKET}/${OBJECT} --insecure &>/dev/null; then
     echo -e "${GREEN}✓ productInventory.csv already exists in bucket${NC}"
 else
     echo -e "${YELLOW}Uploading productInventory.csv to ${BUCKET}...${NC}"
-    mc cp "${FILE}" myminio/${BUCKET}/schema/inventory/${OBJECT} --insecure
+    mc cp "${FILE}" myminio/${BUCKET}/${OBJECT} --insecure
     echo -e "${GREEN}✓ Data uploaded successfully${NC}"
 fi
 echo ""

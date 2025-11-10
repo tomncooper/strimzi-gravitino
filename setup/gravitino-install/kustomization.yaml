@@ -5,7 +5,7 @@ resources:
   - ../manifests/gravitino
 
 patches:
-  - path: patch-deployment-resources.yaml
+  - path: patch-deployment.yaml
     target:
       kind: Deployment
       name: gravitino

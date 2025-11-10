@@ -4,7 +4,13 @@ metadata:
   name: gravitino
   namespace: metadata
 spec:
+  selector:
+    matchLabels:
+      app: gravitino
   template:
+    metadata:
+      labels:
+        app: gravitino
     spec:
       containers:
       - name: gravitino
