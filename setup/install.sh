@@ -1,7 +1,4 @@
 #!/bin/bash
-# filepath: install.sh
-
-set -e
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,11 +8,13 @@ source "${SCRIPT_DIR}/common.sh"
 
 # Configuration
 GRAVITINO_VERSION="${1:-v1.0.0}"
-MINIO_VERSION="${2:-v7.1.1}"
 
-echo -e "${BLUE}===========================================================${NC}"
-echo -e "${BLUE}Gravitino, Strimzi, Kafka, MinIO and Postgres Installation ${NC}"
-echo -e "${BLUE}===========================================================${NC}"
+# Create temporary directory for status tracking
+STATUS_DIR=$(mktemp -d)
+
+echo -e "${BLUE}===============================================${NC}"
+echo -e "${BLUE}Gravitino Demo Environment Installation Script ${NC}"
+echo -e "${BLUE}===============================================${NC}"
 echo ""
 
 # Check prerequisites
@@ -35,73 +34,256 @@ fi
 echo -e "${GREEN}✓ Active Kubernetes cluster detected${NC}"
 echo ""
 
-# Install Gravitino
-echo -e "${BLUE}=== Installing Gravitino ===${NC}"
+# Function to install Gravitino
+install_gravitino() {
+    local status_file="${STATUS_DIR}/gravitino"
+    local log_file="${STATUS_DIR}/gravitino.log"
+    {
+        echo "[Gravitino] Starting installation..."
 
-# Check if Gravitino is already installed
-if kubectl get namespace "${GRAVITINO_NAMESPACE}" >/dev/null 2>&1 && \
-   kubectl -n "${GRAVITINO_NAMESPACE}" get deployment gravitino >/dev/null 2>&1; then
-    echo -e "${YELLOW}Gravitino is already installed, skipping installation...${NC}"
+        # Check if Gravitino is already installed
+        if kubectl get namespace "${GRAVITINO_NAMESPACE}" >/dev/null 2>&1 && \
+           kubectl -n "${GRAVITINO_NAMESPACE}" get deployment gravitino >/dev/null 2>&1; then
+            echo "[Gravitino] Already installed, skipping installation..."
+        else
+            echo "[Gravitino] Generating manifests for version ${GRAVITINO_VERSION}..."
+            "${SCRIPT_DIR}"/gravitino-manifests.sh "${GRAVITINO_VERSION}" "${GRAVITINO_NAMESPACE}" || {
+                echo "FAILED" > "$status_file"
+                echo "[Gravitino] Failed to generate manifests"
+                return 1
+            }
+
+            echo "[Gravitino] Creating ${GRAVITINO_NAMESPACE} namespace..."
+            kubectl create namespace "${GRAVITINO_NAMESPACE}" || {
+                echo "FAILED" > "$status_file"
+                echo "[Gravitino] Failed to create namespace"
+                return 1
+            }
+
+            echo "[Gravitino] Applying manifests..."
+            kubectl apply -k "${SCRIPT_DIR}"/manifests/gravitino || {
+                echo "FAILED" > "$status_file"
+                echo "[Gravitino] Failed to apply manifests"
+                return 1
+            }
+        fi
+
+        echo "[Gravitino] Waiting for deployment to be ready (this can take 5+ minutes)..."
+        kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment gravitino --timeout=420s || {
+            echo "FAILED" > "$status_file"
+            echo "[Gravitino] Deployment failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[Gravitino] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
+# Function to install Strimzi Kafka
+install_kafka() {
+    local status_file="${STATUS_DIR}/kafka"
+    local log_file="${STATUS_DIR}/kafka.log"
+    {
+        echo "[Kafka] Starting installation..."
+
+        # Check if Strimzi operator is already installed
+        if helm list -n "${KAFKA_NAMESPACE}" 2>/dev/null | grep -q strimzi-cluster-operator; then
+            echo "[Kafka] Strimzi operator already installed, skipping installation..."
+        else
+            echo "[Kafka] Installing Strimzi Kafka operator..."
+            helm install strimzi-cluster-operator oci://quay.io/strimzi-helm/strimzi-kafka-operator \
+              -n "${KAFKA_NAMESPACE}" --create-namespace --wait || {
+                echo "FAILED" > "$status_file"
+                echo "[Kafka] Failed to install Strimzi operator"
+                return 1
+            }
+        fi
+
+        # Check if Kafka cluster already exists
+        if kubectl -n "${KAFKA_NAMESPACE}" get kafka "${KAFKA_CLUSTER_NAME}" >/dev/null 2>&1; then
+            echo "[Kafka] Cluster '${KAFKA_CLUSTER_NAME}' already exists, skipping creation..."
+        else
+            echo "[Kafka] Creating Kafka cluster..."
+            kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n "${KAFKA_NAMESPACE}" || {
+                echo "FAILED" > "$status_file"
+                echo "[Kafka] Failed to create Kafka cluster"
+                return 1
+            }
+        fi
+
+        echo "[Kafka] Waiting for Kafka cluster to be ready..."
+        kubectl -n "${KAFKA_NAMESPACE}" wait kafka/"${KAFKA_CLUSTER_NAME}" --for=condition=Ready --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[Kafka] Kafka cluster failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[Kafka] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
+# Function to install MinIO Operator
+install_minio() {
+    local status_file="${STATUS_DIR}/minio"
+    local log_file="${STATUS_DIR}/minio.log"
+    {
+        echo "[MinIO] Starting installation..."
+
+        echo "[MinIO] Applying MinIO Operator manifests..."
+        kubectl kustomize "${SCRIPT_DIR}"/minio/operator | kubectl apply -f - || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Failed to apply manifests"
+            return 1
+        }
+
+        echo "[MinIO] Waiting for MinIO Operator to be ready..."
+        kubectl -n "${MINIO_OPERATOR_NAMESPACE}" wait --for=condition=available deployment minio-operator --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Operator failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[MinIO] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
+# Function to install PostgreSQL
+install_postgres() {
+    local status_file="${STATUS_DIR}/postgres"
+    local log_file="${STATUS_DIR}/postgres.log"
+    {
+        echo "[PostgreSQL] Starting installation..."
+
+        # Check if namespace exists
+        if ! kubectl get namespace "${POSTGRES_NAMESPACE}" >/dev/null 2>&1; then
+            echo "[PostgreSQL] Creating ${POSTGRES_NAMESPACE} namespace..."
+            kubectl create namespace "${POSTGRES_NAMESPACE}" || {
+                echo "FAILED" > "$status_file"
+                echo "[PostgreSQL] Failed to create namespace"
+                return 1
+            }
+        fi
+
+        echo "[PostgreSQL] Applying PostgreSQL manifests..."
+        kubectl apply -f "${SCRIPT_DIR}"/postgres/postgres-resources.yaml -n "${POSTGRES_NAMESPACE}" || {
+            echo "FAILED" > "$status_file"
+            echo "[PostgreSQL] Failed to apply manifests"
+            return 1
+        }
+
+        echo "[PostgreSQL] Waiting for PostgreSQL to be ready..."
+        kubectl -n "${POSTGRES_NAMESPACE}" wait --for=condition=available deployment postgres --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[PostgreSQL] Deployment failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[PostgreSQL] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
+echo -e "${BLUE}===========================================================${NC}"
+echo -e "${BLUE}Installing components in parallel...${NC}"
+echo -e "${BLUE}===========================================================${NC}"
+echo ""
+
+echo -e "${YELLOW}Installation logs:${NC}"
+echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
+echo -e "  Kafka:      ${STATUS_DIR}/kafka.log"
+echo -e "  MinIO:      ${STATUS_DIR}/minio.log"
+echo -e "  PostgreSQL: ${STATUS_DIR}/postgres.log"
+echo ""
+echo -e "${YELLOW}Tip: Monitor logs with: tail -f ${STATUS_DIR}/*.log${NC}"
+echo ""
+
+install_gravitino &
+PID_GRAVITINO=$!
+
+install_kafka &
+PID_KAFKA=$!
+
+install_minio &
+PID_MINIO=$!
+
+install_postgres &
+PID_POSTGRES=$!
+
+echo -e "${YELLOW}Waiting for all components to complete installation...${NC}"
+echo ""
+
+wait $PID_GRAVITINO $PID_KAFKA $PID_MINIO $PID_POSTGRES
+
+echo ""
+echo -e "${BLUE}===========================================================${NC}"
+echo -e "${BLUE}Installation Summary${NC}"
+echo -e "${BLUE}===========================================================${NC}"
+echo ""
+
+# Check results
+FAILED_COMPONENTS=()
+
+if [ -f "${STATUS_DIR}/gravitino" ] && [ "$(cat "${STATUS_DIR}"/gravitino)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ Gravitino: SUCCESS${NC}"
 else
-    echo -e "${YELLOW}Generating Gravitino manifests for version ${GRAVITINO_VERSION}...${NC}"
-    ${SCRIPT_DIR}/gravitino-manifests.sh "${GRAVITINO_VERSION}" "${GRAVITINO_NAMESPACE}"
-
-    echo -e "${YELLOW}Creating ${GRAVITINO_NAMESPACE} namespace...${NC}"
-    kubectl create namespace "${GRAVITINO_NAMESPACE}"
-
-    echo -e "${YELLOW}Applying Gravitino manifests...${NC}"
-    kubectl apply -k ${SCRIPT_DIR}/manifests/gravitino
+    echo -e "${RED}✗ Gravitino: FAILED${NC}"
+    FAILED_COMPONENTS+=("Gravitino")
 fi
 
-echo -e "${YELLOW}Waiting for Gravitino to be ready (this can take 5+ minutes)...${NC}"
-kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment gravitino --timeout=420s
-
-echo -e "${GREEN}✓ Gravitino installed successfully${NC}"
-echo ""
-
-# Install Strimzi Kafka
-echo -e "${BLUE}=== Installing Strimzi Kafka ===${NC}"
-
-# Check if Strimzi operator is already installed
-if helm list -n "${KAFKA_NAMESPACE}" | grep -q strimzi-cluster-operator; then
-    echo -e "${YELLOW}Strimzi operator is already installed, skipping installation...${NC}"
+if [ -f "${STATUS_DIR}/kafka" ] && [ "$(cat "${STATUS_DIR}"/kafka)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ Kafka: SUCCESS${NC}"
 else
-    echo -e "${YELLOW}Installing Strimzi Kafka operator...${NC}"
-    helm install strimzi-cluster-operator oci://quay.io/strimzi-helm/strimzi-kafka-operator \
-      -n "${KAFKA_NAMESPACE}" --create-namespace --wait
+    echo -e "${RED}✗ Kafka: FAILED${NC}"
+    FAILED_COMPONENTS+=("Kafka")
 fi
 
-# Check if Kafka cluster already exists
-if kubectl -n "${KAFKA_NAMESPACE}" get kafka "${KAFKA_CLUSTER_NAME}" >/dev/null 2>&1; then
-    echo -e "${YELLOW}Kafka cluster '${KAFKA_CLUSTER_NAME}' already exists, skipping creation...${NC}"
+if [ -f "${STATUS_DIR}/minio" ] && [ "$(cat "${STATUS_DIR}"/minio)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ MinIO: SUCCESS${NC}"
 else
-    echo -e "${YELLOW}Creating Kafka cluster...${NC}"
-    kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n "${KAFKA_NAMESPACE}"
+    echo -e "${RED}✗ MinIO: FAILED${NC}"
+    FAILED_COMPONENTS+=("MinIO")
 fi
 
-echo -e "${YELLOW}Waiting for Kafka cluster to be ready...${NC}"
-kubectl -n "${KAFKA_NAMESPACE}" wait kafka/"${KAFKA_CLUSTER_NAME}" --for=condition=Ready --timeout=300s
+if [ -f "${STATUS_DIR}/postgres" ] && [ "$(cat "${STATUS_DIR}"/postgres)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ PostgreSQL: SUCCESS${NC}"
+else
+    echo -e "${RED}✗ PostgreSQL: FAILED${NC}"
+    FAILED_COMPONENTS+=("PostgreSQL")
+fi
 
-echo -e "${GREEN}✓ Strimzi Kafka installed successfully${NC}"
 echo ""
 
-# Install MinIO Operator
-echo -e "${BLUE}=== Installing MinIO Operator ===${NC}"
-kubectl kustomize ${SCRIPT_DIR}/minio/operator | kubectl apply -f -
+# Report final status
+if [ ${#FAILED_COMPONENTS[@]} -eq 0 ]; then
+    echo -e "${GREEN}===========================================================${NC}"
+    echo -e "${GREEN}All components installed successfully!${NC}"
+    echo -e "${GREEN}===========================================================${NC}"
+    echo ""
 
-echo -e "${YELLOW}Waiting for MinIO Operator to be ready...${NC}"
-kubectl -n "${MINIO_OPERATOR_NAMESPACE}" wait --for=condition=available deployment minio-operator --timeout=300s
+    # Clean up temporary directory on success
+    rm -rf "${STATUS_DIR}"
 
-echo -e "${GREEN}✓ MinIO Operator installed successfully${NC}"
-echo ""
+    exit 0
+else
+    echo -e "${RED}===========================================================${NC}"
+    echo -e "${RED}Installation failed for: ${FAILED_COMPONENTS[*]}${NC}"
+    echo -e "${RED}===========================================================${NC}"
+    echo ""
+    echo -e "${YELLOW}Logs preserved at: ${STATUS_DIR}${NC}"
+    echo ""
+    echo -e "${YELLOW}Review logs for troubleshooting:${NC}"
+    for component in "${FAILED_COMPONENTS[@]}"; do
+        component_lower=$(echo "$component" | tr '[:upper:]' '[:lower:]')
+        echo -e "  cat ${STATUS_DIR}/${component_lower}.log"
+    done
+    echo ""
 
-# Install Postgres
-echo -e "${BLUE}=== Installing Postgres ===${NC}"
-kubectl create namespace "${POSTGRES_NAMESPACE}"
-kubectl apply -f ${SCRIPT_DIR}/postgres/postgres-resources.yaml -n "${POSTGRES_NAMESPACE}"
-
-echo -e "${YELLOW}Waiting for Postgres to be ready...${NC}"
-kubectl -n "${POSTGRES_NAMESPACE}" wait --for=condition=available deployment postgres --timeout=300s
-
-echo -e "${GREEN}✓ Postgres installed successfully${NC}"
-echo ""
+    exit 1
+fi
