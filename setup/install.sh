@@ -22,6 +22,7 @@ echo -e "${YELLOW}Checking prerequisites...${NC}"
 check_prerequisite kubectl
 check_prerequisite helm
 check_prerequisite psql
+check_prerequisite jq
 echo -e "${GREEN}✓ Prerequisites check passed${NC}"
 echo ""
 
@@ -61,7 +62,7 @@ install_gravitino() {
             }
 
             echo "[Gravitino] Applying manifests..."
-            kubectl apply -k "${SCRIPT_DIR}"/manifests/gravitino || {
+            kubectl apply -k "${SCRIPT_DIR}"/gravitino-install || {
                 echo "FAILED" > "$status_file"
                 echo "[Gravitino] Failed to apply manifests"
                 return 1

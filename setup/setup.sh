@@ -113,6 +113,7 @@ MINIO_ACCESS_KEY=$(kubectl -n "${MINIO_TENANT_NAMESPACE}" get secret storage-use
 MINIO_SECRET_KEY=$(kubectl -n "${MINIO_TENANT_NAMESPACE}" get secret storage-user -o jsonpath='{.data.CONSOLE_SECRET_KEY}' | base64 -d)
 
 BUCKET="product-csvs"
+SUBFOLDER="schema/product-data"
 OBJECT="productInventory.csv"
 FILE="${SCRIPT_DIR}/data/productInventory.csv"
 
@@ -126,12 +127,46 @@ fi
 
 mc alias set myminio https://localhost:9000 "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --insecure
 
+echo -e "${YELLOW}Creating MinIO service account for Gravitino...${NC}"
+# Check if service account already exists
+if mc admin user svcacct info myminio gravitino-svc --insecure &>/dev/null; then
+    echo -e "${YELLOW}Service account 'gravitino-svc' already exists, removing it first...${NC}"
+    mc admin user svcacct rm myminio gravitino-svc --insecure
+fi
+
+SVCACCT_OUTPUT=$(mc admin user svcacct add myminio console --name gravitino-svc --insecure 2>&1)
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to create service account${NC}"
+    echo -e "${RED}${SVCACCT_OUTPUT}${NC}"
+    exit 1
+fi
+
+# Parse the output to get access key and secret key
+# The output format is typically:
+# Access Key: <key>
+# Secret Key: <secret>
+export GRAVITINO_S3_ACCESS_KEY
+GRAVITINO_S3_ACCESS_KEY=$(echo "$SVCACCT_OUTPUT" | grep "Access Key" | awk '{print $3}')
+export GRAVITINO_S3_SECRET_KEY
+GRAVITINO_S3_SECRET_KEY=$(echo "$SVCACCT_OUTPUT" | grep "Secret Key" | awk '{print $3}')
+
+if [ -z "$GRAVITINO_S3_ACCESS_KEY" ] || [ -z "$GRAVITINO_S3_SECRET_KEY" ]; then
+    echo -e "${RED}Failed to parse service account credentials${NC}"
+    echo -e "${RED}Output: ${SVCACCT_OUTPUT}${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Service account created successfully${NC}"
+echo ""
+
+MINIO_FILEPATH="myminio/${BUCKET}/${SUBFOLDER}/${OBJECT}"
+
 echo -e "${YELLOW}Checking if productInventory.csv already exists...${NC}"
-if mc stat myminio/${BUCKET}/${OBJECT} --insecure &>/dev/null; then
+if mc stat "${MINIO_FILEPATH}" --insecure &>/dev/null; then
     echo -e "${GREEN}✓ productInventory.csv already exists in bucket${NC}"
 else
     echo -e "${YELLOW}Uploading productInventory.csv to ${BUCKET}...${NC}"
-    mc cp "${FILE}" myminio/${BUCKET}/${OBJECT} --insecure
+    mc cp "${FILE}" "${MINIO_FILEPATH}" --insecure
     echo -e "${GREEN}✓ Data uploaded successfully${NC}"
 fi
 echo ""
@@ -168,6 +203,10 @@ echo ""
 
 echo -e "${YELLOW}Creating Gravitino catalog for PostgreSQL...${NC}"
 ${SCRIPT_DIR}/example-resources/create-relational-catalog.sh
+echo ""
+
+echo -e "${YELLOW}Creating Gravitino fileset catalog for MinIO...${NC}"
+${SCRIPT_DIR}/example-resources/create-fileset-catalog.sh
 echo ""
 
 echo -e "${GREEN}========================================${NC}"

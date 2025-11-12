@@ -7,9 +7,12 @@ It then walks through the various metadata management operations, related to Kaf
 
 ## Prerequisites
 
-- Kubernetes cluster (1.18+) (e.g. Minikube)
-- Helm (3.5+)
-- kubectl (1.18+)
+- Kubernetes cluster (e.g. Minikube)
+- helm 
+- kubectl 
+- mc (MinIO client)
+- psql (PostgreSQL client)
+- jq (command-line JSON processor)
 
 ## Installation
 
