@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitino-iceberg-rest-server
+  namespace: metadata
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: download-jdbc-driver
+        image: curlimages/curl:8.5.0
+        command:
+        - sh
+        - -c
+        - |
+          echo "Downloading PostgreSQL JDBC driver..."
+          curl -L -o /jdbc-drivers/postgresql.jar https://jdbc.postgresql.org/download/postgresql-42.7.8.jar
+          echo "PostgreSQL JDBC driver downloaded successfully"
+          ls -lh /jdbc-drivers/
+        volumeMounts:
+        - name: jdbc-drivers
+          mountPath: /jdbc-drivers
+      - name: download-aws-bundle
+        image: curlimages/curl:8.5.0
+        command:
+        - sh
+        - -c
+        - |
+          echo "Downloading Iceberg AWS bundle..."
+          curl -L -o /aws-bundle/iceberg-aws-bundle.jar https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.6.1/iceberg-aws-bundle-1.6.1.jar
+          echo "Iceberg AWS bundle downloaded successfully"
+          ls -lh /aws-bundle/
+        volumeMounts:
+        - name: aws-bundle
+          mountPath: /aws-bundle
+      containers:
+      - name: gravitino-iceberg-rest-server
+        volumeMounts:
+        - name: minio-credentials
+          mountPath: /etc/minio-credentials
+          readOnly: true
+        - name: jdbc-drivers
+          mountPath: /root/gravitino-iceberg-rest-server/libs/postgresql.jar
+          subPath: postgresql.jar
+          readOnly: true
+        - name: aws-bundle
+          mountPath: /root/gravitino-iceberg-rest-server/libs/iceberg-aws-bundle.jar
+          subPath: iceberg-aws-bundle.jar
+          readOnly: true
+      volumes:
+      - name: minio-credentials
+        secret:
+          secretName: gravitino-minio-credentials
+      - name: jdbc-drivers
+        emptyDir: {}
+      - name: aws-bundle
+        emptyDir: {}

@@ -2,8 +2,7 @@
 
 [Apache Gravitino](https://gravitino.apache.org/) is an open-source unified metadata management platform that provides a centralized way to discover, manage, and govern metadata across various data systems and storage engines. 
 
-This repo provides an example of how to deploy a basic Gravitino setup with a Strimzi managed Kafka cluster. 
-It then walks through the various metadata management operations, related to Kafka.
+This repo provides an example of how to deploy a basic Gravitino setup with a Strimzi managed Kafka cluster, S3 compatible object storage (MinIO) and PostgreSQL. It also setups up a Gravitino Iceberg REST server to manage Iceberg table metadata.
 
 ## Prerequisites
 
@@ -26,14 +25,12 @@ For example, you can use [Minikube](https://minikube.sigs.k8s.io/docs/start/) to
 
 ### Automated install
 
-You can run the `install.sh` script, in the `setup` folder, to automatically install Gravitino, Strimzi Kafka and other dependencies. The `setup.sh` will create the necessary, topics, tables and filesets in the installed components and add the relevant entries to Gravitino.:
+You can run the `install.sh` script, in the `setup` folder, to automatically install Gravitino, Strimzi Kafka and other dependencies. The `setup.sh` will create the necessary, topics, tables and filesets in the installed components and add the relevant entries to Gravitino:
 
 ```shell
 ./setup/install.sh
 ./setup/setup.sh
 ```
-
-Alternatively, you can follow the manual installation steps below.
 
 ## Using Gravitino
 

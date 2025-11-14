@@ -49,127 +49,13 @@ echo ""
 
 # Setup Kafka topics and catalog
 echo -e "${YELLOW}Setting up Kafka topics and catalog...${NC}"
-${SCRIPT_DIR}/example-resources/setup-kafka.sh
+"${SCRIPT_DIR}"/example-resources/setup-kafka.sh
 echo ""
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Setting up MinIO Tenant (S3 Storage) ${NC}"
-echo -e "${BLUE}========================================${NC}"
+# MinIO tenant and buckets are created during installation (install.sh)
 
-# Check if MinIO tenant already exists
-if kubectl -n "${MINIO_TENANT_NAMESPACE}" get tenants.minio.min.io myminio &>/dev/null; then
-    echo -e "${GREEN}✓ MinIO Tenant already exists${NC}"
-else
-    kubectl kustomize ${SCRIPT_DIR}/minio/tenant | kubectl apply -f -
-fi
-
-echo -e "${YELLOW}Waiting for MinIO Tenant to be ready...${NC}"
-kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=jsonpath='{status.healthStatus}'=green tenants.minio.min.io myminio --timeout=300s
-echo ""
-echo -e "${GREEN}✓ MinIO Tenant setup completed${NC}"
-echo ""
-
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Creating MinIO Buckets ${NC}"
-echo -e "${BLUE}========================================${NC}"
-
-echo -e "${YELLOW}Creating bucket list ConfigMap...${NC}"
-kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f ${SCRIPT_DIR}/minio/buckets/bucket-list-configmap.yaml
-
-# Delete existing job if it exists (jobs are immutable)
-if kubectl -n "${MINIO_TENANT_NAMESPACE}" get job minio-create-bucket &>/dev/null; then
-    echo -e "${YELLOW}Deleting existing bucket creation job...${NC}"
-    kubectl -n "${MINIO_TENANT_NAMESPACE}" delete job minio-create-bucket
-fi
-
-echo -e "${YELLOW}Running bucket creation job...${NC}"
-kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f ${SCRIPT_DIR}/minio/buckets/create-bucket.yaml
-
-echo -e "${YELLOW}Waiting for bucket creation job to complete...${NC}"
-kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=condition=complete job minio-create-bucket --timeout=300s
-
-echo ""
-echo -e "${GREEN}✓ MinIO buckets created successfully${NC}"
-echo ""
-
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Uploading Data to MinIO ${NC}"
-echo -e "${BLUE}========================================${NC}"
-
-# Check if port-forward is already running
-if ! pgrep -f "port-forward.*myminio-hl.*9000:9000" > /dev/null; then
-    echo -e "${YELLOW}Starting port-forward to MinIO service...${NC}"
-    kubectl -n "${MINIO_TENANT_NAMESPACE}" port-forward svc/myminio-hl 9000:9000 > /dev/null 2>&1 &
-    MINIO_PORT_FORWARD_PID=$!
-    # Wait for port-forward to be ready
-    sleep 5
-else
-    echo -e "${GREEN}✓ MinIO port-forward already running${NC}"
-    MINIO_PORT_FORWARD_PID=$(pgrep -f "port-forward.*myminio-hl.*9000:9000")
-fi
-
-echo -e "${YELLOW}Retrieving MinIO credentials...${NC}"
-MINIO_ACCESS_KEY=$(kubectl -n "${MINIO_TENANT_NAMESPACE}" get secret storage-user -o jsonpath='{.data.CONSOLE_ACCESS_KEY}' | base64 -d)
-MINIO_SECRET_KEY=$(kubectl -n "${MINIO_TENANT_NAMESPACE}" get secret storage-user -o jsonpath='{.data.CONSOLE_SECRET_KEY}' | base64 -d)
-
-BUCKET="product-csvs"
-SUBFOLDER="schema/product-data"
-OBJECT="productInventory.csv"
-FILE="${SCRIPT_DIR}/data/productInventory.csv"
-
-echo -e "${YELLOW}Configuring MinIO client...${NC}"
-# Check if mc is installed
-if ! command -v mc &> /dev/null; then
-    echo -e "${RED}ERROR: MinIO client (mc) is not installed${NC}"
-    echo -e "${RED}Please install it from: https://github.com/minio/mc${NC}"
-    exit 1
-fi
-
-mc alias set myminio https://localhost:9000 "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" --insecure
-
-echo -e "${YELLOW}Creating MinIO service account for Gravitino...${NC}"
-# Check if service account already exists
-if mc admin user svcacct info myminio gravitino-svc --insecure &>/dev/null; then
-    echo -e "${YELLOW}Service account 'gravitino-svc' already exists, removing it first...${NC}"
-    mc admin user svcacct rm myminio gravitino-svc --insecure
-fi
-
-SVCACCT_OUTPUT=$(mc admin user svcacct add myminio console --name gravitino-svc --insecure 2>&1)
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Failed to create service account${NC}"
-    echo -e "${RED}${SVCACCT_OUTPUT}${NC}"
-    exit 1
-fi
-
-# Parse the output to get access key and secret key
-# The output format is typically:
-# Access Key: <key>
-# Secret Key: <secret>
-export GRAVITINO_S3_ACCESS_KEY
-GRAVITINO_S3_ACCESS_KEY=$(echo "$SVCACCT_OUTPUT" | grep "Access Key" | awk '{print $3}')
-export GRAVITINO_S3_SECRET_KEY
-GRAVITINO_S3_SECRET_KEY=$(echo "$SVCACCT_OUTPUT" | grep "Secret Key" | awk '{print $3}')
-
-if [ -z "$GRAVITINO_S3_ACCESS_KEY" ] || [ -z "$GRAVITINO_S3_SECRET_KEY" ]; then
-    echo -e "${RED}Failed to parse service account credentials${NC}"
-    echo -e "${RED}Output: ${SVCACCT_OUTPUT}${NC}"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ Service account created successfully${NC}"
-echo ""
-
-MINIO_FILEPATH="myminio/${BUCKET}/${SUBFOLDER}/${OBJECT}"
-
-echo -e "${YELLOW}Checking if productInventory.csv already exists...${NC}"
-if mc stat "${MINIO_FILEPATH}" --insecure &>/dev/null; then
-    echo -e "${GREEN}✓ productInventory.csv already exists in bucket${NC}"
-else
-    echo -e "${YELLOW}Uploading productInventory.csv to ${BUCKET}...${NC}"
-    mc cp "${FILE}" "${MINIO_FILEPATH}" --insecure
-    echo -e "${GREEN}✓ Data uploaded successfully${NC}"
-fi
-echo ""
+# Upload data to MinIO
+"${SCRIPT_DIR}"/example-resources/upload-minio-data.sh
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Setting up PostgreSQL ${NC}"
@@ -209,25 +95,25 @@ echo -e "${YELLOW}Creating Gravitino fileset catalog for MinIO...${NC}"
 ${SCRIPT_DIR}/example-resources/create-fileset-catalog.sh
 echo ""
 
+echo -e "${YELLOW}Creating Gravitino Iceberg REST catalog...${NC}"
+${SCRIPT_DIR}/example-resources/create-iceberg-catalog.sh
+echo ""
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "Gravitino Web UI: ${BLUE}http://localhost:8090${NC}"
-echo -e "MinIO Console: ${BLUE}https://localhost:9001${NC}"
 echo -e "PostgreSQL: ${BLUE}localhost:5432${NC} (Database: testdb, User: admin, Password: admin)"
 echo ""
 echo -e "Port-forward PIDs:"
 echo -e "  Gravitino: ${PORT_FORWARD_PID}"
-echo -e "  MinIO: ${MINIO_PORT_FORWARD_PID}"
 echo -e "  PostgreSQL: ${POSTGRES_PORT_FORWARD_PID}"
 echo ""
 echo -e "To stop the port-forwards, run:"
-echo -e "  ${YELLOW}kill ${PORT_FORWARD_PID} ${MINIO_PORT_FORWARD_PID} ${POSTGRES_PORT_FORWARD_PID}${NC}"
+echo -e "  ${YELLOW}kill ${PORT_FORWARD_PID} ${POSTGRES_PORT_FORWARD_PID}${NC}"
 echo -e "To restart the Gravitino port-forward, run:"
 echo -e "  ${YELLOW}kubectl -n ${GRAVITINO_NAMESPACE} port-forward svc/gravitino 8090:8090${NC}"
-echo -e "To restart the MinIO port-forward, run:"
-echo -e "  ${YELLOW}kubectl -n ${MINIO_TENANT_NAMESPACE} port-forward svc/myminio-hl 9000:9000${NC}"
 echo -e "To restart the Postgres port-forward, run:"
 echo -e "  ${YELLOW}kubectl -n ${POSTGRES_NAMESPACE} port-forward svc/postgres 5432:5432${NC}"
 echo ""

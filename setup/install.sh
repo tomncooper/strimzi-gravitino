@@ -61,6 +61,13 @@ install_gravitino() {
                 return 1
             }
 
+            echo "[Gravitino] Creating MinIO credentials secret..."
+            "${SCRIPT_DIR}"/gravitino-install/create-minio-credentials-secret.sh || {
+                echo "FAILED" > "$status_file"
+                echo "[Gravitino] Failed to create MinIO credentials secret"
+                return 1
+            }
+
             echo "[Gravitino] Applying manifests..."
             kubectl apply -k "${SCRIPT_DIR}"/gravitino-install || {
                 echo "FAILED" > "$status_file"
@@ -69,10 +76,10 @@ install_gravitino() {
             }
         fi
 
-        echo "[Gravitino] Waiting for deployment to be ready (this can take 5+ minutes)..."
-        kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment gravitino --timeout=420s || {
+        echo "[Gravitino] Waiting for all deployments to be ready (this can take 5+ minutes)..."
+        kubectl -n "${GRAVITINO_NAMESPACE}" wait --for=condition=available deployment --all --timeout=420s || {
             echo "FAILED" > "$status_file"
-            echo "[Gravitino] Deployment failed to become ready"
+            echo "[Gravitino] Deployments failed to become ready"
             return 1
         }
 
@@ -135,7 +142,7 @@ install_minio() {
         echo "[MinIO] Starting installation..."
 
         echo "[MinIO] Applying MinIO Operator manifests..."
-        kubectl kustomize "${SCRIPT_DIR}"/minio/operator | kubectl apply -f - || {
+        kubectl apply -k "${SCRIPT_DIR}"/minio/operator || {
             echo "FAILED" > "$status_file"
             echo "[MinIO] Failed to apply manifests"
             return 1
@@ -147,6 +154,57 @@ install_minio() {
             echo "[MinIO] Operator failed to become ready"
             return 1
         }
+
+        # Check if MinIO tenant already exists
+        if kubectl -n "${MINIO_TENANT_NAMESPACE}" get tenants.minio.min.io myminio >/dev/null 2>&1; then
+            echo "[MinIO] Tenant 'myminio' already exists, skipping creation..."
+        else
+            echo "[MinIO] Creating MinIO tenant..."
+            kubectl apply -k "${SCRIPT_DIR}"/minio/tenant || {
+                echo "FAILED" > "$status_file"
+                echo "[MinIO] Failed to create tenant"
+                return 1
+            }
+        fi
+
+        echo "[MinIO] Waiting for MinIO tenant to be healthy (this can take 3-5 minutes)..."
+        kubectl wait --for=jsonpath='{.status.healthStatus}'=green \
+            tenants.minio.min.io myminio -n "${MINIO_TENANT_NAMESPACE}" --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Tenant failed to become healthy"
+            return 1
+        }
+
+        echo "[MinIO] Tenant is healthy"
+
+        echo "[MinIO] Creating bucket list ConfigMap..."
+        kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f "${SCRIPT_DIR}"/minio/buckets/bucket-list-configmap.yaml || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Failed to create bucket list ConfigMap"
+            return 1
+        }
+
+        # Delete existing job if it exists (jobs are immutable)
+        if kubectl -n "${MINIO_TENANT_NAMESPACE}" get job minio-create-bucket &>/dev/null; then
+            echo "[MinIO] Deleting existing bucket creation job..."
+            kubectl -n "${MINIO_TENANT_NAMESPACE}" delete job minio-create-bucket
+        fi
+
+        echo "[MinIO] Running bucket creation job..."
+        kubectl -n "${MINIO_TENANT_NAMESPACE}" apply -f "${SCRIPT_DIR}"/minio/buckets/create-bucket.yaml || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Failed to create bucket job"
+            return 1
+        }
+
+        echo "[MinIO] Waiting for bucket creation job to complete..."
+        kubectl -n "${MINIO_TENANT_NAMESPACE}" wait --for=condition=complete job minio-create-bucket --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[MinIO] Bucket creation job failed to complete"
+            return 1
+        }
+
+        echo "[MinIO] Buckets created successfully (test-bucket, product-csvs, iceberg-warehouse)"
 
         echo "SUCCESS" > "$status_file"
         echo "[MinIO] ✓ Installed successfully"
@@ -205,9 +263,6 @@ echo ""
 echo -e "${YELLOW}Tip: Monitor logs with: tail -f ${STATUS_DIR}/*.log${NC}"
 echo ""
 
-install_gravitino &
-PID_GRAVITINO=$!
-
 install_kafka &
 PID_KAFKA=$!
 
@@ -217,10 +272,15 @@ PID_MINIO=$!
 install_postgres &
 PID_POSTGRES=$!
 
-echo -e "${YELLOW}Waiting for all components to complete installation...${NC}"
+echo -e "${YELLOW}Waiting for Kafka, MinIO, and PostgreSQL to complete installation...${NC}"
 echo ""
 
-wait $PID_GRAVITINO $PID_KAFKA $PID_MINIO $PID_POSTGRES
+wait $PID_KAFKA $PID_MINIO $PID_POSTGRES
+
+echo -e "${YELLOW}Installing Gravitino...${NC}"
+echo ""
+
+install_gravitino
 
 echo ""
 echo -e "${BLUE}===========================================================${NC}"
@@ -281,7 +341,7 @@ else
     echo ""
     echo -e "${YELLOW}Review logs for troubleshooting:${NC}"
     for component in "${FAILED_COMPONENTS[@]}"; do
-        component_lower=$(echo "$component" | tr '[:upper:]' '[:lower:]')
+        component_lower=$(echo "$component" | tr "[:upper:]" "[:lower:]")
         echo -e "  cat ${STATUS_DIR}/${component_lower}.log"
     done
     echo ""
