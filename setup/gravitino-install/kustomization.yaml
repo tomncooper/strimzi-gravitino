@@ -5,11 +5,19 @@ resources:
   - ../manifests/gravitino
 
 patches:
-  - path: patch-deployment.yaml
+  - path: patch-gravitino-deployment.yaml
     target:
       kind: Deployment
       name: gravitino
-  - path: patch-configmap.yaml
+  - path: patch-gravitino-configmap.yaml
     target:
       kind: ConfigMap
       name: gravitino
+  - path: patch-iceberg-rest-configmap.yaml
+    target:
+      kind: ConfigMap
+      name: gravitino-iceberg-rest-server
+  - path: patch-iceberg-rest-deployment.yaml
+    target:
+      kind: Deployment
+      name: gravitino-iceberg-rest-server

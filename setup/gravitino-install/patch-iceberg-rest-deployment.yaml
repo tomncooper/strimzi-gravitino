@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitino-iceberg-rest-server
+  namespace: metadata
+spec:
+  template:
+    spec:
+      containers:
+      - name: gravitino-iceberg-rest-server
+        volumeMounts:
+        - name: minio-credentials
+          mountPath: /etc/minio-credentials
+          readOnly: true
+      volumes:
+      - name: minio-credentials
+        secret:
+          secretName: gravitino-minio-credentials
