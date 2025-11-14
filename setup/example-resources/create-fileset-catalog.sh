@@ -14,11 +14,9 @@ FILESET_NAME="product_inventory_fileset"
 BUCKET_NAME="product-csvs"
 SCHEMA_FOLDER_NAME="schema"
 
-# Check for required MinIO credentials
-if [ -z "$GRAVITINO_S3_ACCESS_KEY" ] || [ -z "$GRAVITINO_S3_SECRET_KEY" ]; then
-    echo "Error: MinIO credentials not set. Please set GRAVITINO_S3_ACCESS_KEY and GRAVITINO_S3_SECRET_KEY environment variables"
-    exit 1
-fi
+echo -e "${YELLOW}Retrieving MinIO admin credentials...${NC}"
+GRAVITINO_S3_ACCESS_KEY=$(kubectl -n "${GRAVITINO_NAMESPACE}" get secret gravitino-minio-credentials -o jsonpath='{.data.access-key}' | base64 -d)
+GRAVITINO_S3_SECRET_KEY=$(kubectl -n "${GRAVITINO_NAMESPACE}" get secret gravitino-minio-credentials -o jsonpath='{.data.secret-key}' | base64 -d)
 
 # Check if catalog exists
 echo "Checking if catalog '${FILESET_CATALOG_NAME}' exists..."

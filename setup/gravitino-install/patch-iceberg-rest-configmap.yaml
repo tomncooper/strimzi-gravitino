@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gravitino-iceberg-rest-server
+  namespace: metadata
+data:
+  init.sh: |-
+    #!/bin/bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one
+    # or more contributor license agreements.  See the NOTICE file
+    # distributed with this work for additional information
+    # regarding copyright ownership.  The ASF licenses this file
+    # to you under the Apache License, Version 2.0 (the
+    # "License"); you may not use this file except in compliance
+    # with the License.  You may obtain a copy of the License at
+    #
+    #  http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing,
+    # software distributed under the License is distributed on an
+    # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    # KIND, either express or implied.  See the License for the
+    # specific language governing permissions and limitations
+    # under the License.
+    #
+
+    # Override config
+    cp /tmp/conf/* ${GRAVITINO_HOME}/conf
+
+    # Inject MinIO credentials into config
+    if [ -f "/etc/minio-credentials/access-key" ] && [ -f "/etc/minio-credentials/secret-key" ]; then
+      echo "Injecting MinIO credentials into iceberg-rest-server config..."
+      S3_ACCESS_KEY=$(cat /etc/minio-credentials/access-key)
+      S3_SECRET_KEY=$(cat /etc/minio-credentials/secret-key)
+
+      cat >> ${GRAVITINO_HOME}/conf/gravitino-iceberg-rest-server.conf <<-EOF
+
+    # MinIO S3 Credentials (injected at runtime)
+    gravitino.iceberg-rest.s3-access-key-id = ${S3_ACCESS_KEY}
+    gravitino.iceberg-rest.s3-secret-access-key = ${S3_SECRET_KEY}
+    EOF
+      echo "MinIO credentials injected successfully"
+    else
+      echo "WARNING: MinIO credentials not found at /etc/minio-credentials/"
+      echo "Iceberg REST server may not be able to access S3 storage"
+    fi
+
+    # Add Kubernetes CA certificate to JVM truststore
+    echo "Adding Kubernetes CA certificate to JVM truststore..."
+    CACERTS_PATH="${JAVA_HOME}/lib/security/cacerts"
+    K8S_CA_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    if [ -f "$K8S_CA_CERT" ]; then
+      keytool -importcert -noprompt \
+        -keystore "$CACERTS_PATH" \
+        -storepass changeit \
+        -alias kubernetes-ca \
+        -file "$K8S_CA_CERT" 2>/dev/null || echo "Certificate may already exist or import failed"
+      echo "Kubernetes CA certificate import completed"
+    else
+      echo "WARNING: Kubernetes CA certificate not found at $K8S_CA_CERT"
+    fi
+
+    echo "Start the Gravitino Iceberg REST Server"
+    /bin/bash ${GRAVITINO_HOME}/bin/gravitino-iceberg-rest-server.sh start
+
+  gravitino-iceberg-rest-server.conf: |-
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one
+    # or more contributor license agreements.  See the NOTICE file
+    # distributed with this work for additional information
+    # regarding copyright ownership.  The ASF licenses this file
+    # to you under the Apache License, Version 2.0 (the
+    # "License"); you may not use this file except in compliance
+    # with the License.  You may obtain a copy of the License at
+    #
+    #  http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing,
+    # software distributed under the License is distributed on an
+    # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    # KIND, either express or implied.  See the License for the
+    # specific language governing permissions and limitations
+    # under the License.
+    #
+    
+    # THE CONFIGURATION FOR Iceberg REST SERVER
+    gravitino.iceberg-rest.shutdown.timeout = 3000
+    gravitino.iceberg-rest.io-impl = org.apache.iceberg.aws.s3.S3FileIO
+    gravitino.iceberg-rest.s3-endpoint = https://myminio-hl.minio-tenant.svc.cluster.local:9000
+    gravitino.iceberg-rest.s3-path-style-access = true
+    
+    # THE CONFIGURATION FOR Iceberg REST WEB SERVER
+    # The host name of the built-in web server
+    gravitino.iceberg-rest.host = 0.0.0.0
+    # The http port number of the built-in web server
+    gravitino.iceberg-rest.httpPort = 9001
+    # The min thread size of the built-in web server
+    gravitino.iceberg-rest.minThreads = 24
+    # The max thread size of the built-in web server
+    gravitino.iceberg-rest.maxThreads = 200
+    # The stop timeout of the built-in web server
+    gravitino.iceberg-rest.stopTimeout = 30000
+    # The timeout of idle connections
+    gravitino.iceberg-rest.idleTimeout = 30000
+    # The executor thread pool work queue size of the built-in web server
+    gravitino.iceberg-rest.threadPoolWorkQueueSize = 100
+    # The request header size of the built-in web server
+    gravitino.iceberg-rest.requestHeaderSize = 131072
+    # The response header size of the built-in web server
+    gravitino.iceberg-rest.responseHeaderSize = 131072
+    
+    # THE CONFIGURATION FOR Iceberg catalog backend
+    # The Iceberg catalog backend, it's recommended to change to hive or jdbc
+    gravitino.iceberg-rest.catalog-backend = jdbc
+    gravitino.iceberg-rest.catalog-backend-name = jdbc
+
+    # JDBC catalog backend configuration
+    gravitino.iceberg-rest.uri = jdbc:postgresql://postgres.postgres.svc.cluster.local:5432/testdb
+    gravitino.iceberg-rest.jdbc.user = admin
+    gravitino.iceberg-rest.jdbc.password = admin
+    gravitino.iceberg-rest.jdbc-driver = org.postgresql.Driver
+
+    # The warehouse directory of Iceberg catalog
+    gravitino.iceberg-rest.warehouse = s3a://iceberg-warehouse/

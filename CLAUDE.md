@@ -18,17 +18,27 @@ This repository demonstrates deploying Apache Gravitino (a unified metadata mana
 ### Gravitino Hierarchy
 
 Gravitino organizes metadata in a hierarchy:
-- **Metalake** (`strimzi_kafka`): Top-level container for all metadata
-- **Catalogs**: Collections for specific data systems (Kafka, S3 filesets, etc.)
+- **Metalake** (`demolake`): Top-level container for all metadata
+- **Catalogs**: Collections for specific data systems
   - `my_cluster_catalog`: MESSAGING catalog for Kafka topics
-  - `product_files_catalog_2`: FILESET catalog for S3/MinIO data
+  - `product_files`: FILESET catalog for S3/MinIO data
+  - `postgres_catalog`: RELATIONAL catalog for PostgreSQL
+  - `iceberg_rest_catalog`: RELATIONAL catalog for Apache Iceberg tables
 - **Schemas**: Logical groupings within catalogs
 - **Objects**: Actual data objects (topics, filesets, tables)
-- **Tags**: Hierarchical metadata labels applied to objects
+- **Tags**: Hierarchical metadata labels (dev, staging, prod, pii) applied to objects
 
 ### Installation Flow
 
 The `gravitino-manifests.sh` script extracts Helm manifests from the Gravitino git submodule at `setup/gravitino/`. It checks out a specific version tag, packages the Helm chart, and generates Kubernetes manifests with kustomize. This approach avoids runtime Helm dependencies.
+
+The `install.sh` script installs components with dependency management:
+- **Phase 1 (Parallel)**: Kafka, MinIO, and PostgreSQL install simultaneously for faster deployment
+- **Phase 2 (Sequential)**: Gravitino installs after MinIO completes, ensuring MinIO credentials are available
+- A shell script (`create-minio-credentials-secret.sh`) creates MinIO service account credentials and stores them in a Kubernetes secret before Gravitino deployment
+- Individual log files track installation progress in a temporary directory
+- Final summary shows success/failure status for each component
+- Failed installations preserve logs for troubleshooting
 
 ## Common Commands
 
@@ -36,9 +46,20 @@ The `gravitino-manifests.sh` script extracts Helm manifests from the Gravitino g
 
 ```bash
 # Full automated installation (requires 6 CPUs, 16GB RAM minimum)
+# Installs Gravitino, Kafka, MinIO, and PostgreSQL in parallel
 ./setup/install.sh
 
-# Setup metadata, topics, tags, and data uploads
+# Setup metadata, catalogs, topics, tags, and data
+# This script:
+# 1. Creates the 'demolake' metalake
+# 2. Sets up Kafka topics and catalog
+# 3. Creates and attaches tags (dev, staging, prod, pii)
+# 4. Deploys MinIO tenant and creates buckets
+# 5. Retrieves MinIO credentials from Kubernetes secret (created during install)
+# 6. Uploads data to MinIO
+# 7. Sets up PostgreSQL tables and catalog
+# 8. Creates fileset catalog for S3/MinIO access
+# 9. Starts port-forwards for all services (PIDs displayed at end)
 ./setup/setup.sh
 ```
 
@@ -66,12 +87,12 @@ All Gravitino operations use the REST API at `http://localhost:8090/api` (requir
 # Create metalake
 curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
   -H "Content-Type: application/json" -d '{
-    "name":"strimzi_kafka",
-    "comment":"This metalake holds all Strimzi related metadata",
+    "name":"demolake",
+    "comment":"This metalake holds all the demo system metadata",
     "properties":{}
 }' http://localhost:8090/api/metalakes
 
-# Create Kafka catalog
+# Create Kafka catalog (MESSAGING type)
 curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
   -H "Content-Type: application/json" -d '{
     "name": "my_cluster_catalog",
@@ -80,15 +101,26 @@ curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
     "properties": {
         "bootstrap.servers": "my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
     }
-}' http://localhost:8090/api/metalakes/strimzi_kafka/catalogs
+}' http://localhost:8090/api/metalakes/demolake/catalogs
 
-# List tags with details
-curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-  'http://localhost:8090/api/metalakes/strimzi_kafka/tags?details=true'
+# Create PostgreSQL catalog (RELATIONAL type)
+curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
+  -H "Content-Type: application/json" -d '{
+    "name": "postgres_catalog",
+    "type": "RELATIONAL",
+    "provider": "jdbc-postgresql",
+    "properties": {
+        "jdbc-url": "jdbc:postgresql://postgres.postgres.svc.cluster.local:5432/testdb",
+        "jdbc-driver": "org.postgresql.Driver",
+        "jdbc-database": "testdb",
+        "jdbc-user": "admin",
+        "jdbc-password": "admin"
+    }
+}' http://localhost:8090/api/metalakes/demolake/catalogs
 
-# List objects with a specific tag
+# List catalogs
 curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
-  http://localhost:8090/api/metalakes/strimzi_kafka/tags/pii/objects
+  http://localhost:8090/api/metalakes/demolake/catalogs
 ```
 
 ### MinIO Operations
@@ -103,6 +135,56 @@ mc alias set myminio https://localhost:9000 "${MINIO_ACCESS_KEY}" "${MINIO_SECRE
 
 # Upload files
 mc cp ./setup/data/productInventory.csv myminio/product-csvs/productInventory.csv --insecure
+```
+
+### PostgreSQL Operations
+
+```bash
+# Port-forward to PostgreSQL (required for direct access)
+kubectl -n postgres port-forward svc/postgres 5432:5432
+
+# Connect to PostgreSQL with psql
+psql -h localhost -p 5432 -U admin -d testdb
+# Password: admin
+
+# Query the product inventory table
+psql -h localhost -p 5432 -U admin -d testdb -c "SELECT * FROM product_inventory LIMIT 10;"
+
+# The setup scripts create tables and load data from setup/data/productInventory.csv
+# Table structure: id (integer), category (varchar), price (integer), quantity (integer)
+```
+
+### Tag Operations
+
+```bash
+# Create a tag
+curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
+  -H "Content-Type: application/json" -d '{
+    "name": "pii",
+    "comment": "Personally identifiable information",
+    "properties": {}
+}' http://localhost:8090/api/metalakes/demolake/tags
+
+# List all tags with details
+curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
+  'http://localhost:8090/api/metalakes/demolake/tags?details=true'
+
+# Attach tags to a topic
+curl -X POST -H "Accept: application/vnd.gravitino.v1+json" \
+  -H "Content-Type: application/json" -d '{
+    "tagsToAdd": ["pii", "prod"],
+    "tagsToRemove": []
+}' http://localhost:8090/api/metalakes/demolake/catalogs/my_cluster_catalog/schemas/default/topics/pii-topic-1/tags
+
+# List objects with a specific tag
+curl -X GET -H "Accept: application/vnd.gravitino.v1+json" \
+  http://localhost:8090/api/metalakes/demolake/tags/pii/objects
+
+# Four tags are created by setup.sh:
+# - dev (tier: 3)
+# - staging (tier: 2)
+# - prod (tier: 1)
+# - pii (no tier)
 ```
 
 ### Debugging
@@ -125,42 +207,131 @@ kubectl -n minio-tenant get tenants.minio.min.io myminio
 ### Shared Configuration
 
 All installation scripts source `setup/common.sh` which defines:
-- Color codes for terminal output
-- Namespace names for all components
-- Kafka cluster name
-- Other shared constants
+- Color codes for terminal output (RED, GREEN, YELLOW, BLUE, NC)
+- Namespace names: `GRAVITINO_NAMESPACE="metadata"`, `KAFKA_NAMESPACE="kafka"`, `MINIO_OPERATOR_NAMESPACE="minio-operator"`, `MINIO_TENANT_NAMESPACE="minio-tenant"`, `POSTGRES_NAMESPACE="postgres"`
+- Kafka cluster name: `KAFKA_CLUSTER_NAME="my-cluster"`
+- Metalake name: `METALAKE="demolake"`
+- Helper function: `check_prerequisite()` for validating required commands
 
-When modifying namespaces or cluster names, update `common.sh` to maintain consistency.
+When modifying namespaces, cluster names, or the metalake name, update `common.sh` to maintain consistency across all scripts.
 
 ### MinIO Setup
 
 MinIO uses kustomize for deployment:
 - `setup/minio/operator/kustomization.yaml`: MinIO operator
 - `setup/minio/tenant/kustomization.yaml`: MinIO tenant configuration
-- `setup/minio/buckets/`: Bucket creation via Kubernetes Job
+- `setup/minio/buckets/bucket-list-configmap.yaml`: Defines buckets to create
+
+Buckets created during setup:
+- `test-bucket`: General testing bucket
+- `product-csvs`: Stores product inventory CSV files
+- `iceberg-warehouse`: Storage for Apache Iceberg tables
+
+The `setup/example-resources/create-minio-buckets.sh` script creates these buckets via a Kubernetes Job. MinIO service account credentials are created during installation by a Kubernetes Job and stored in the `gravitino-minio-credentials` secret in the `metadata` namespace.
 
 ### Fileset Catalog Configuration
 
-The `setup/example-resources/create-fileset.sh` script creates an S3-backed fileset catalog. Key properties:
-- Base64-encoded credentials: `Y29uc29sZQ==` (console) and `Y29uc29zZTEyMw==` (consoze123)
-- S3 endpoint points to MinIO service: `https://myminio-hl.minio-tenant.svc.cluster.local:9000`
-- Uses S3A filesystem with path-style access
-- SSL disabled for internal cluster communication
+The `setup/example-resources/create-fileset-catalog.sh` script creates an S3-backed fileset catalog. Key properties:
+- Catalog name: `product_files` (FILESET type)
+- Schema name: `product_schema` at location `s3a://product-csvs/schema`
+- Fileset name: `product_inventory_fileset` at `s3a://product-csvs/schema/product-data`
+- Credentials: Retrieved from Kubernetes secret `gravitino-minio-credentials` (created during install) and exported as environment variables `GRAVITINO_S3_ACCESS_KEY` and `GRAVITINO_S3_SECRET_KEY`
+- S3 endpoint: `https://myminio-hl.minio-tenant.svc.cluster.local:9000`
+- Uses S3A filesystem with path-style access and SSL enabled
+
+### PostgreSQL Catalog Configuration
+
+The `setup/example-resources/create-relational-catalog.sh` script creates a PostgreSQL catalog:
+- Catalog name: `postgres_catalog` (RELATIONAL type, provider: jdbc-postgresql)
+- Schema name: `public`
+- JDBC URL: `jdbc:postgresql://postgres.postgres.svc.cluster.local:5432/testdb`
+- Credentials: user `admin`, password `admin`
+- Creates table `product_inventory` with columns: id, category, price, quantity
+- Data loaded from `setup/data/productInventory.csv` via `create-tables.sh`
+
+### Iceberg Catalog Configuration
+
+The `setup/example-resources/create-iceberg-catalog.sh` script creates an Apache Iceberg REST catalog:
+- Catalog name: `iceberg_rest_catalog` (RELATIONAL type, provider: lakehouse-iceberg)
+- Schema name: `iceberg_schema`
+- REST URI: `http://gravitino-iceberg-rest-server.metadata.svc.cluster.local:9001/iceberg/` (includes `/iceberg/` path required by Iceberg REST API spec)
+- Warehouse location: `s3://iceberg-warehouse` (note: uses `s3://` protocol, not `s3a://`)
+- **Catalog backend**: JDBC (PostgreSQL) for persistent metadata storage
+  - JDBC URL: `jdbc:postgresql://postgres.postgres.svc.cluster.local:5432/testdb`
+  - Database credentials: user `admin`, password `admin`
+  - JDBC driver: `org.postgresql.Driver` (PostgreSQL JDBC driver v42.7.8)
+  - **Driver installation**: An initContainer automatically downloads the PostgreSQL JDBC driver at pod startup
+    - The driver JAR is downloaded from `https://jdbc.postgresql.org/download/postgresql-42.7.8.jar`
+    - Mounted into the container at `/root/gravitino-iceberg-rest-server/libs/postgresql.jar`
+    - Configuration file: `setup/gravitino-install/patch-iceberg-rest-deployment.yaml`
+  - Backend configuration file: `setup/gravitino-install/patch-iceberg-rest-configmap.yaml`
+- Uses MinIO bucket `iceberg-warehouse` for table storage
+- **S3 credentials**: Automatically injected at startup from Kubernetes secret `gravitino-minio-credentials`
+  - Credentials are mounted into the iceberg-rest-server pod at `/etc/minio-credentials`
+  - Init script reads credentials and appends them to `gravitino-iceberg-rest-server.conf`
+  - No manual credential configuration required
+- **AWS SDK dependencies**: Iceberg AWS bundle (v1.6.1) automatically downloaded via initContainer
+  - Both Gravitino main server and Iceberg REST server download the bundle at startup
+  - Provides S3FileIO and AWS SDK classes for S3/MinIO operations
+  - JAR mounted at `/root/gravitino/libs/iceberg-aws-bundle.jar` (main server) and `/root/gravitino-iceberg-rest-server/libs/iceberg-aws-bundle.jar` (REST server)
+- **PostgreSQL dependency**: The PostgreSQL database must be running before deploying the Iceberg REST server, as it stores catalog metadata
+
+### Setup Scripts
+
+The `setup/example-resources/` directory contains scripts for configuring catalogs and data:
+
+**Kafka Setup:**
+- `example-topics.yaml`: Defines four Kafka topics (dev-topic-1, staging-topic-1, prod-topic-1, pii-topic-1)
+- `setup-kafka.sh`: Creates Kafka topics, catalog, tags, and attaches tags to topics
+
+**PostgreSQL Setup:**
+- `create-tables.sh`: Creates PostgreSQL tables and loads CSV data
+- `create-relational-catalog.sh`: Creates Gravitino catalog for PostgreSQL
+
+**MinIO Setup:**
+- `setup-minio-tenant.sh`: Deploys MinIO tenant via kustomize
+- `create-minio-buckets.sh`: Creates S3 buckets via Kubernetes Job
+- `create-minio-service-account.sh`: Manual script for credential rotation (not used in automated setup)
+- `upload-minio-data.sh`: Uploads CSV files to MinIO buckets
+- `create-fileset-catalog.sh`: Creates Gravitino fileset catalog for S3/MinIO
+
+**Iceberg Setup:**
+- `create-iceberg-catalog.sh`: Creates Gravitino catalog for Apache Iceberg REST
+
+**Tag Management:**
+- `create-tags.sh`: Creates environment tags (dev, staging, prod, pii)
+- `attach-tags.sh`: Attaches tags to Kafka topics
 
 ## Prerequisites
 
 - Kubernetes 1.18+ (tested with Minikube: `minikube start --cpus 8 --memory 28G --disk-size 50g`)
 - kubectl 1.18+
 - Helm 3.5+
+- PostgreSQL client (`psql`) for database operations
 - MinIO client (`mc`) for S3 operations
 - `jq` for JSON processing in scripts
+
+The `install.sh` script validates these prerequisites (except `mc`) before starting installation.
 
 ## Key Implementation Notes
 
 - The Gravitino submodule at `setup/gravitino/` is from the Apache Gravitino repository
 - Manifests are generated from Gravitino Helm charts, not applied directly with Helm
-- Port-forwarding is required for local API access (scripts handle this automatically)
-- Tags are hierarchical and can be applied at catalog, schema, or object level
+- Port-forwarding is required for local API access (setup.sh creates them automatically and displays PIDs)
+- The metalake name is `demolake` (configurable in `setup/common.sh`)
+- Three catalog types are demonstrated:
+  - **MESSAGING**: Kafka topics via Strimzi
+  - **FILESET**: S3/MinIO files
+  - **RELATIONAL**: PostgreSQL tables and Iceberg tables
+- Tags (dev, staging, prod, pii) are created and attached to objects with properties like tier levels
 - Kafka topics use Strimzi CRDs (`KafkaTopic`) managed by the Strimzi operator
-- MinIO buckets are created via a Kubernetes Job that runs the MinIO client
+- MinIO buckets (`test-bucket`, `product-csvs`, `iceberg-warehouse`) are created via Kubernetes Job
+- **Credential Management**: MinIO service account credentials are created during installation via shell script and stored in secret `gravitino-minio-credentials`
+  - Script `setup/gravitino-install/create-minio-credentials-secret.sh` creates service account using `mc` and stores credentials in Kubernetes
+  - Iceberg REST server automatically receives credentials via secret mount and runtime injection
+  - Setup scripts retrieve credentials from the secret for fileset catalog creation
+  - Single source of truth for S3/MinIO credentials across all components
+- PostgreSQL data is loaded from `setup/data/productInventory.csv`
+- All scripts check for existing resources before creating new ones (idempotent operations)
+- Installation uses phased approach: Kafka/MinIO/PostgreSQL in parallel, then Gravitino sequentially after MinIO completes
 

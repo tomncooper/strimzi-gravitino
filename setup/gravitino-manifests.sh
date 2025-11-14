@@ -78,6 +78,28 @@ helm template ${RELEASE_NAME} ./${CHART_PACKAGE} \
     --set mysql.enabled=true \
     > "${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
 
+# Package and generate Iceberg REST Server manifests
+echo -e "${YELLOW}Packaging Iceberg REST Server chart...${NC}"
+helm package gravitino-iceberg-rest-server
+
+ICEBERG_CHART_PACKAGE=$(ls gravitino-iceberg-rest-server-*.tgz | head -n 1)
+
+if [ -z "${ICEBERG_CHART_PACKAGE}" ]; then
+    echo -e "${RED}Error: Failed to find packaged Iceberg REST Server chart${NC}"
+    exit 1
+fi
+
+ICEBERG_CHART_VERSION=$(echo "${ICEBERG_CHART_PACKAGE}" | sed 's/gravitino-iceberg-rest-server-\(.*\)\.tgz/\1/')
+
+echo -e "${GREEN}Iceberg chart packaged: ${ICEBERG_CHART_PACKAGE} (version: ${ICEBERG_CHART_VERSION})${NC}"
+
+echo -e "${YELLOW}Generating Iceberg REST Server manifests...${NC}"
+helm template ${RELEASE_NAME}-iceberg-rest ./${ICEBERG_CHART_PACKAGE} \
+    --namespace ${NAMESPACE} \
+    --set nameOverride=gravitino-iceberg-rest-server \
+    --set fullnameOverride=gravitino-iceberg-rest-server \
+    > "${OUTPUT_DIR}/iceberg-rest-server-manifests-${ICEBERG_CHART_VERSION}.yaml"
+
 # Generate kustomization file
 echo -e "${YELLOW}Generating kustomization.yaml...${NC}"
 cat > "${OUTPUT_DIR}/kustomization.yaml" <<EOF
@@ -88,10 +110,12 @@ namespace: ${NAMESPACE}
 
 resources:
   - gravitino-manifests-${CHART_VERSION}.yaml
+  - iceberg-rest-server-manifests-${ICEBERG_CHART_VERSION}.yaml
 EOF
 
 echo -e "${GREEN}✓ Extraction complete!${NC}"
-echo -e "Manifests saved to: ${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
+echo -e "Gravitino manifests saved to: ${OUTPUT_DIR}/gravitino-manifests-${CHART_VERSION}.yaml"
+echo -e "Iceberg REST Server manifests saved to: ${OUTPUT_DIR}/iceberg-rest-server-manifests-${ICEBERG_CHART_VERSION}.yaml"
 echo -e "Kustomization saved to: ${OUTPUT_DIR}/kustomization.yaml"
 echo ""
 echo -e "${YELLOW}To apply the manifests, run:${NC}"
