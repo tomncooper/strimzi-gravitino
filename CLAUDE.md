@@ -14,6 +14,8 @@ This repository demonstrates deploying Apache Gravitino (a unified metadata mana
 - **Strimzi Kafka**: Deployed in `kafka` namespace, Kafka cluster named `my-cluster`
 - **MinIO**: Operator in `minio-operator` namespace, tenant in `minio-tenant` namespace
 - **PostgreSQL**: Deployed in `postgres` namespace for relational data
+- **Apicurio Registry**: Deployed in `registry` namespace, provides schema registry for Kafka
+- **Data Generator**: Deployed in `data-generator` namespace, generates sample data for Kafka topics
 
 ### Gravitino Hierarchy
 
@@ -33,7 +35,7 @@ Gravitino organizes metadata in a hierarchy:
 The `gravitino-manifests.sh` script extracts Helm manifests from the Gravitino git submodule at `setup/gravitino/`. It checks out a specific version tag, packages the Helm chart, and generates Kubernetes manifests with kustomize. This approach avoids runtime Helm dependencies.
 
 The `install.sh` script installs components with dependency management:
-- **Phase 1 (Parallel)**: Kafka, MinIO, and PostgreSQL install simultaneously for faster deployment
+- **Phase 1 (Parallel)**: Kafka, MinIO, PostgreSQL, and Apicurio Registry install simultaneously for faster deployment
 - **Phase 2 (Sequential)**: Gravitino installs after MinIO completes, ensuring MinIO credentials are available
 - A shell script (`create-minio-credentials-secret.sh`) creates MinIO service account credentials and stores them in a Kubernetes secret before Gravitino deployment
 - Individual log files track installation progress in a temporary directory
@@ -46,7 +48,7 @@ The `install.sh` script installs components with dependency management:
 
 ```bash
 # Full automated installation (requires 6 CPUs, 16GB RAM minimum)
-# Installs Gravitino, Kafka, MinIO, and PostgreSQL in parallel
+# Installs Gravitino, Kafka, MinIO, PostgreSQL, and Apicurio Registry in parallel
 ./setup/install.sh
 
 # Setup metadata, catalogs, topics, tags, and data
@@ -54,11 +56,11 @@ The `install.sh` script installs components with dependency management:
 # 1. Creates the 'demolake' metalake
 # 2. Sets up Kafka topics and catalog
 # 3. Creates and attaches tags (dev, staging, prod, pii)
-# 4. Deploys MinIO tenant and creates buckets
-# 5. Retrieves MinIO credentials from Kubernetes secret (created during install)
-# 6. Uploads data to MinIO
-# 7. Sets up PostgreSQL tables and catalog
-# 8. Creates fileset catalog for S3/MinIO access
+# 4. Deploys data generator application (depends on Kafka and Apicurio Registry)
+# 5. Uploads data to MinIO
+# 6. Sets up PostgreSQL tables and catalog
+# 7. Creates fileset catalog for S3/MinIO access
+# 8. Creates Iceberg REST catalog
 # 9. Starts port-forwards for all services (PIDs displayed at end)
 ./setup/setup.sh
 ```
@@ -154,6 +156,27 @@ psql -h localhost -p 5432 -U admin -d testdb -c "SELECT * FROM product_inventory
 # Table structure: id (integer), category (varchar), price (integer), quantity (integer)
 ```
 
+### Apicurio Registry Operations
+
+```bash
+# Port-forward to Apicurio Registry (required for direct API access)
+kubectl -n registry port-forward svc/apicurio-registry-service 8080:8080
+
+# List all artifacts (schemas) in the registry
+curl http://localhost:8080/apis/registry/v2/search/artifacts
+
+# Get a specific artifact
+curl http://localhost:8080/apis/registry/v2/groups/default/artifacts/{artifactId}
+
+# Check Apicurio Registry deployment status
+kubectl -n registry get deployment apicurio-registry
+kubectl -n registry logs -l app=apicurio-registry
+
+# Check data generator deployment status
+kubectl -n data-generator get deployment recommendation-app-data
+kubectl -n data-generator logs -l app=recommendation-app-data
+```
+
 ### Tag Operations
 
 ```bash
@@ -200,6 +223,18 @@ kubectl -n kafka get kafkatopic
 
 # Check MinIO tenant status
 kubectl -n minio-tenant get tenants.minio.min.io myminio
+
+# Check Apicurio Registry status
+kubectl -n registry get deployment apicurio-registry
+kubectl -n registry logs -l app=apicurio-registry
+
+# Check Data Generator status
+kubectl -n data-generator get deployment recommendation-app-data
+kubectl -n data-generator logs -l app=recommendation-app-data
+
+# Check PostgreSQL status
+kubectl -n postgres get deployment postgres
+kubectl -n postgres logs -l app=postgres
 ```
 
 ## Configuration Files
@@ -208,7 +243,7 @@ kubectl -n minio-tenant get tenants.minio.min.io myminio
 
 All installation scripts source `setup/common.sh` which defines:
 - Color codes for terminal output (RED, GREEN, YELLOW, BLUE, NC)
-- Namespace names: `GRAVITINO_NAMESPACE="metadata"`, `KAFKA_NAMESPACE="kafka"`, `MINIO_OPERATOR_NAMESPACE="minio-operator"`, `MINIO_TENANT_NAMESPACE="minio-tenant"`, `POSTGRES_NAMESPACE="postgres"`
+- Namespace names: `GRAVITINO_NAMESPACE="metadata"`, `KAFKA_NAMESPACE="kafka"`, `MINIO_OPERATOR_NAMESPACE="minio-operator"`, `MINIO_TENANT_NAMESPACE="minio-tenant"`, `POSTGRES_NAMESPACE="postgres"`, `APICURIO_NAMESPACE="registry"`
 - Kafka cluster name: `KAFKA_CLUSTER_NAME="my-cluster"`
 - Metalake name: `METALAKE="demolake"`
 - Helper function: `check_prerequisite()` for validating required commands
@@ -248,6 +283,36 @@ The `setup/example-resources/create-relational-catalog.sh` script creates a Post
 - Credentials: user `admin`, password `admin`
 - Creates table `product_inventory` with columns: id, category, price, quantity
 - Data loaded from `setup/data/productInventory.csv` via `create-tables.sh`
+
+### Apicurio Registry Configuration
+
+Apicurio Registry is deployed in the `registry` namespace via kustomize:
+- Deployment configuration: `setup/apicurio-registry/apicurio-registry-deployment.yaml`
+- Service configuration: `setup/apicurio-registry/apicurio-registry-service.yaml`
+- Namespace: `setup/apicurio-registry/apicurio-registry-namespace.yaml`
+- Kustomization: `setup/apicurio-registry/kustomization.yaml`
+
+Key properties:
+- Image: `apicurio/apicurio-registry-mem:latest-release` (in-memory storage)
+- Service name: `apicurio-registry-service`
+- Service port: 8080 (targetPort: 8080)
+- API endpoint: `http://apicurio-registry-service.registry.svc:8080/apis/registry/v2`
+- Storage: Ephemeral (in-memory), schemas are lost on pod restart
+
+### Data Generator Configuration
+
+The data generator application is deployed in the `data-generator` namespace via kustomize:
+- Deployment configuration: `setup/data-generator-app/data-gen-deployment.yaml`
+- Namespace: `setup/data-generator-app/data-gen-namespace.yaml`
+- Kustomization: `setup/data-generator-app/kustomization.yaml`
+
+Key properties:
+- Image: `quay.io/streamshub/flink-examples-data-generator:main`
+- Deployment name: `recommendation-app-data`
+- Kafka bootstrap servers: `my-cluster-kafka-bootstrap.kafka.svc:9092`
+- Data types generated: `clickStream,sales,internationalSales`
+- Apicurio Registry URL: `http://apicurio-registry-service.registry.svc:8080/apis/registry/v2`
+- Uses Apicurio for schema management: `USE_APICURIO_REGISTRY=true`
 
 ### Iceberg Catalog Configuration
 
@@ -333,5 +398,13 @@ The `install.sh` script validates these prerequisites (except `mc`) before start
   - Single source of truth for S3/MinIO credentials across all components
 - PostgreSQL data is loaded from `setup/data/productInventory.csv`
 - All scripts check for existing resources before creating new ones (idempotent operations)
-- Installation uses phased approach: Kafka/MinIO/PostgreSQL in parallel, then Gravitino sequentially after MinIO completes
+- Installation uses phased approach: Kafka/MinIO/PostgreSQL/Apicurio in parallel, then Gravitino sequentially after MinIO completes
+- **Apicurio Registry**: Schema registry deployed in `registry` namespace, provides schema management for Kafka messages
+  - Service accessible at `apicurio-registry-service.registry.svc:8080`
+  - Uses in-memory storage (ephemeral)
+- **Data Generator Application**: Generates sample data (clickStream, sales, internationalSales) and publishes to Kafka topics
+  - Deployed in `data-generator` namespace
+  - Configured to use Apicurio Registry for schema management
+  - Connects to Kafka cluster at `my-cluster-kafka-bootstrap.kafka.svc:9092`
+  - Deployment name: `recommendation-app-data`
 

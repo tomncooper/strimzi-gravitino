@@ -14,6 +14,7 @@ KAFKA_CLUSTER_NAME="my-cluster"
 MINIO_OPERATOR_NAMESPACE="minio-operator"
 MINIO_TENANT_NAMESPACE="minio-tenant"
 POSTGRES_NAMESPACE="postgres"
+APICURIO_NAMESPACE="registry"
 METALAKE="demolake"
 
 # Function to check if a command is installed

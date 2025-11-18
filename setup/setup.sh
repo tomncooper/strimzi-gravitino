@@ -52,6 +52,27 @@ echo -e "${YELLOW}Setting up Kafka topics and catalog...${NC}"
 "${SCRIPT_DIR}"/example-resources/setup-kafka.sh
 echo ""
 
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Setting up Data Generator ${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# Check if Apicurio Registry is ready
+echo -e "${YELLOW}Checking that Apicurio Registry is ready...${NC}"
+kubectl -n registry wait --for=condition=available deployment apicurio-registry --timeout=300s
+
+echo -e "${GREEN}✓ Apicurio Registry is ready${NC}"
+echo ""
+
+# Deploy data generator application
+echo -e "${YELLOW}Deploying data generator application...${NC}"
+kubectl apply -k "${SCRIPT_DIR}"/data-generator-app
+
+echo -e "${YELLOW}Waiting for data generator to be ready...${NC}"
+kubectl -n data-generator wait --for=condition=available deployment recommendation-app-data --timeout=300s
+
+echo -e "${GREEN}✓ Data generator deployed successfully${NC}"
+echo ""
+
 # MinIO tenant and buckets are created during installation (install.sh)
 
 # Upload data to MinIO

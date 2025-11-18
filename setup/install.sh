@@ -114,7 +114,7 @@ install_kafka() {
             echo "[Kafka] Cluster '${KAFKA_CLUSTER_NAME}' already exists, skipping creation..."
         else
             echo "[Kafka] Creating Kafka cluster..."
-            kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n "${KAFKA_NAMESPACE}" || {
+            kubectl apply -k "${SCRIPT_DIR}"/kafka || {
                 echo "FAILED" > "$status_file"
                 echo "[Kafka] Failed to create Kafka cluster"
                 return 1
@@ -249,6 +249,39 @@ install_postgres() {
     } &> "$log_file"
 }
 
+# Function to install Apicurio Registry
+install_apicurio() {
+    local status_file="${STATUS_DIR}/apicurio"
+    local log_file="${STATUS_DIR}/apicurio.log"
+    {
+        echo "[Apicurio] Starting installation..."
+
+        # Check if Apicurio deployment already exists
+        if kubectl get namespace "${APICURIO_NAMESPACE}" >/dev/null 2>&1 && \
+           kubectl -n "${APICURIO_NAMESPACE}" get deployment apicurio-registry >/dev/null 2>&1; then
+            echo "[Apicurio] Already installed, skipping installation..."
+        else
+            echo "[Apicurio] Applying Apicurio Registry manifests..."
+            kubectl apply -k "${SCRIPT_DIR}"/apicurio-registry || {
+                echo "FAILED" > "$status_file"
+                echo "[Apicurio] Failed to apply manifests"
+                return 1
+            }
+        fi
+
+        echo "[Apicurio] Waiting for Apicurio Registry to be ready..."
+        kubectl -n "${APICURIO_NAMESPACE}" wait --for=condition=available deployment apicurio-registry --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[Apicurio] Deployment failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[Apicurio] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
 echo -e "${BLUE}===========================================================${NC}"
 echo -e "${BLUE}Installing components in parallel...${NC}"
 echo -e "${BLUE}===========================================================${NC}"
@@ -259,6 +292,7 @@ echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
 echo -e "  Kafka:      ${STATUS_DIR}/kafka.log"
 echo -e "  MinIO:      ${STATUS_DIR}/minio.log"
 echo -e "  PostgreSQL: ${STATUS_DIR}/postgres.log"
+echo -e "  Apicurio:   ${STATUS_DIR}/apicurio.log"
 echo ""
 echo -e "${YELLOW}Tip: Monitor logs with: tail -f ${STATUS_DIR}/*.log${NC}"
 echo ""
@@ -272,10 +306,13 @@ PID_MINIO=$!
 install_postgres &
 PID_POSTGRES=$!
 
-echo -e "${YELLOW}Waiting for Kafka, MinIO, and PostgreSQL to complete installation...${NC}"
+install_apicurio &
+PID_APICURIO=$!
+
+echo -e "${YELLOW}Waiting for Kafka, MinIO, PostgreSQL, and Apicurio to complete installation...${NC}"
 echo ""
 
-wait $PID_KAFKA $PID_MINIO $PID_POSTGRES
+wait $PID_KAFKA $PID_MINIO $PID_POSTGRES $PID_APICURIO
 
 echo -e "${YELLOW}Installing Gravitino...${NC}"
 echo ""
@@ -317,6 +354,13 @@ if [ -f "${STATUS_DIR}/postgres" ] && [ "$(cat "${STATUS_DIR}"/postgres)" == "SU
 else
     echo -e "${RED}✗ PostgreSQL: FAILED${NC}"
     FAILED_COMPONENTS+=("PostgreSQL")
+fi
+
+if [ -f "${STATUS_DIR}/apicurio" ] && [ "$(cat "${STATUS_DIR}"/apicurio)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ Apicurio: SUCCESS${NC}"
+else
+    echo -e "${RED}✗ Apicurio: FAILED${NC}"
+    FAILED_COMPONENTS+=("Apicurio")
 fi
 
 echo ""

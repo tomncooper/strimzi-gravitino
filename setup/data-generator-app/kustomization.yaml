@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data-generator
+
+resources:
+  - data-gen-namespace.yaml
+  - data-gen-deployment.yaml
