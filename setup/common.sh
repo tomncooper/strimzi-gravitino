@@ -15,6 +15,7 @@ MINIO_OPERATOR_NAMESPACE="minio-operator"
 MINIO_TENANT_NAMESPACE="minio-tenant"
 POSTGRES_NAMESPACE="postgres"
 APICURIO_NAMESPACE="registry"
+FLINK_NAMESPACE="flink"
 METALAKE="demolake"
 
 # Function to check if a command is installed

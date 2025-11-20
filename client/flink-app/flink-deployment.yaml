@@ -3,7 +3,7 @@ kind: FlinkDeployment
 metadata:
   name: recommendation-app
 spec:
-  image: quay.io/streamshub/flink-sql-runner:0.4.0
+  image: quay.io/streamshub/flink-sql-runner:0.1.0
   flinkVersion: v1_20
   flinkConfiguration:
     taskmanager.numberOfTaskSlots: "1"
@@ -61,11 +61,10 @@ spec:
         ) WITH ( 
           'connector' = 'kafka', 
           'topic' = 'flink.click.streams', 
-          'properties.bootstrap.servers' = 
-          'my-cluster-kafka-bootstrap.flink.svc:9092', 
+          'properties.bootstrap.servers' = 'my-cluster-kafka-bootstrap.kafka.svc:9092', 
           'properties.group.id' = 'click-stream-group', 
           'value.format' = 'avro-confluent', 
-          'value.avro-confluent.url' = 'http://apicurio-registry-service.flink.svc:8080/apis/ccompat/v6', 
+          'value.avro-confluent.url' = 'http://apicurio-registry-service.registry.svc:8080/apis/ccompat/v6', 
           'scan.startup.mode' = 'latest-offset'
         ); 
         CREATE TABLE SalesRecordTable (
@@ -79,10 +78,10 @@ spec:
         ) WITH (
           'connector' = 'kafka', 
           'topic' = 'flink.sales.records', 
-          'properties.bootstrap.servers' = 'my-cluster-kafka-bootstrap.flink.svc:9092',
+          'properties.bootstrap.servers' = 'my-cluster-kafka-bootstrap.kafka.svc:9092',
           'properties.group.id' = 'sales-record-group', 
           'value.format' = 'avro-confluent', 
-          'value.avro-confluent.url' = 'http://apicurio-registry-service.flink.svc:8080/apis/ccompat/v6', 
+          'value.avro-confluent.url' = 'http://apicurio-registry-service.registry.svc:8080/apis/ccompat/v6', 
           'scan.startup.mode' = 'latest-offset' 
         ); 
         CREATE TEMPORARY VIEW clicked_products AS 
@@ -134,7 +133,7 @@ spec:
         ) WITH ( 
           'connector' = 'upsert-kafka', 
           'topic' = 'flink.recommended.products', 
-          'properties.bootstrap.servers' = 'my-cluster-kafka-bootstrap.flink.svc:9092', 
+          'properties.bootstrap.servers' = 'my-cluster-kafka-bootstrap.kafka.svc:9092', 
           'properties.client.id' = 'recommended-products-producer-client', 
           'properties.transaction.timeout.ms' = '800000', 
           'key.format' = 'csv', 

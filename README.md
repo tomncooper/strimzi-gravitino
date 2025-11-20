@@ -15,7 +15,7 @@ This repo provides an example of how to deploy a basic Gravitino setup with a St
 
 ## Installation
 
-This installation assumes you have a working Kubernetes cluster, with adequate resources (minimum 6 CPUS and 16GB of RAM) and have `kubectl` and `helm` installed and configured to access your cluster.
+This installation assumes you have a working Kubernetes cluster, with adequate resources (minimum 8 CPUS and 16GB of RAM) and have `kubectl` and `helm` installed and configured to access your cluster.
 
 For example, you can use [Minikube](https://minikube.sigs.k8s.io/docs/start/) to create a local Kubernetes cluster for testing purposes:
 

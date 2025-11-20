@@ -8,6 +8,8 @@ source "${SCRIPT_DIR}/common.sh"
 
 # Configuration
 GRAVITINO_VERSION="${1:-v1.0.0}"
+CERT_MANAGER_VERSION="1.19.1"
+FLINK_OPERATOR_VERSION="1.13.0"
 
 # Create temporary directory for status tracking
 STATUS_DIR=$(mktemp -d)
@@ -282,17 +284,85 @@ install_apicurio() {
     } &> "$log_file"
 }
 
+# Function to install Apache Flink Kubernetes Operator
+install_flink() {
+    local status_file="${STATUS_DIR}/flink"
+    local log_file="${STATUS_DIR}/flink.log"
+    {
+
+        echo "Installing CertManager version ${CERT_MANAGER_VERSION} which is needed by the Flink Kubernetes Operator"
+
+        # Install CertManager - this is needed by the Flink Kubernetes Operator
+        echo "[CertManager] Checking for CertManager install"
+        if kubectl get namespace cert-manager ; then
+            echo "[CertManager] CertManager is already installed"
+        else
+            kubectl create -f https://github.com/jetstack/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml
+        fi
+
+        echo "[Flink] Starting installation of Flink Kubernetes Operator version ${FLINK_OPERATOR_VERSION}..."
+
+        # Check if Helm repository already exists
+        if ! helm repo list 2>/dev/null | grep -q flink-operator-repo; then
+            echo "[Flink] Adding Flink Operator Helm repository..."
+            helm repo add --force-update flink-operator-repo https://downloads.apache.org/flink/flink-kubernetes-operator-${FLINK_OPERATOR_VERSION}/ || {
+                echo "FAILED" > "$status_file"
+                echo "[Flink] Failed to add Helm repository"
+                return 1
+            }
+        else
+            echo "[Flink] Flink Operator Helm repository already exists, skipping add..."
+        fi
+
+        echo "[Flink] Updating Helm repositories..."
+        helm repo update || {
+            echo "FAILED" > "$status_file"
+            echo "[Flink] Failed to update Helm repositories"
+            return 1
+        }
+
+        echo "[Flink] Waiting for cert-manager webhook to be ready..."
+        kubectl -n cert-manager wait --for=condition=Available --timeout=300s deployment cert-manager-webhook
+
+        echo "[Flink] Checking for Flink Operator install"
+        if kubectl -n "${FLINK_NAMESPACE}" get deployment flink-kubernetes-operator ; then
+            echo "[Flink] Flink Operator already installed"
+        else
+            echo "Installing the Flink Operator"
+            helm install flink-kubernetes-operator flink-operator-repo/flink-kubernetes-operator \
+            --set podSecurityContext=null \
+            --set defaultConfiguration."log4j-operator\.properties"=monitorInterval\=30 \
+            --set defaultConfiguration."log4j-console\.properties"=monitorInterval\=30 \
+            --set defaultConfiguration."flink-conf\.yaml"="kubernetes.operator.metrics.reporter.prom.factory.class\:\ org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+            kubernetes.operator.metrics.reporter.prom.port\:\ 9249 " \
+            --create-namespace \
+            -n "${FLINK_NAMESPACE}"
+        fi
+
+        echo "[Flink] Waiting for Flink Operator to be ready..."
+        kubectl -n "${FLINK_NAMESPACE}" wait --for=condition=available deployment --all --timeout=300s || {
+            echo "FAILED" > "$status_file"
+            echo "[Flink] Operator failed to become ready"
+            return 1
+        }
+
+        echo "SUCCESS" > "$status_file"
+        echo "[Flink] ✓ Installed successfully"
+        return 0
+    } &> "$log_file"
+}
+
 echo -e "${BLUE}===========================================================${NC}"
 echo -e "${BLUE}Installing components in parallel...${NC}"
 echo -e "${BLUE}===========================================================${NC}"
 echo ""
 
 echo -e "${YELLOW}Installation logs:${NC}"
-echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
 echo -e "  Kafka:      ${STATUS_DIR}/kafka.log"
 echo -e "  MinIO:      ${STATUS_DIR}/minio.log"
 echo -e "  PostgreSQL: ${STATUS_DIR}/postgres.log"
 echo -e "  Apicurio:   ${STATUS_DIR}/apicurio.log"
+echo -e "  Flink:      ${STATUS_DIR}/flink.log"
 echo ""
 echo -e "${YELLOW}Tip: Monitor logs with: tail -f ${STATUS_DIR}/*.log${NC}"
 echo ""
@@ -309,13 +379,18 @@ PID_POSTGRES=$!
 install_apicurio &
 PID_APICURIO=$!
 
-echo -e "${YELLOW}Waiting for Kafka, MinIO, PostgreSQL, and Apicurio to complete installation...${NC}"
+install_flink &
+PID_FLINK=$!
+
+echo -e "${YELLOW}Waiting for Kafka, MinIO, PostgreSQL, Apicurio, and Flink to complete installation...${NC}"
 echo ""
 
-wait $PID_KAFKA $PID_MINIO $PID_POSTGRES $PID_APICURIO
+wait $PID_KAFKA $PID_MINIO $PID_POSTGRES $PID_APICURIO $PID_FLINK
 
 echo -e "${YELLOW}Installing Gravitino...${NC}"
 echo ""
+echo -e "${YELLOW}Installation logs:${NC}"
+echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
 
 install_gravitino
 
@@ -361,6 +436,13 @@ if [ -f "${STATUS_DIR}/apicurio" ] && [ "$(cat "${STATUS_DIR}"/apicurio)" == "SU
 else
     echo -e "${RED}✗ Apicurio: FAILED${NC}"
     FAILED_COMPONENTS+=("Apicurio")
+fi
+
+if [ -f "${STATUS_DIR}/flink" ] && [ "$(cat "${STATUS_DIR}"/flink)" == "SUCCESS" ]; then
+    echo -e "${GREEN}✓ Flink: SUCCESS${NC}"
+else
+    echo -e "${RED}✗ Flink: FAILED${NC}"
+    FAILED_COMPONENTS+=("Flink")
 fi
 
 echo ""
