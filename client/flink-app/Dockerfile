@@ -2,7 +2,7 @@ FROM quay.io/streamshub/flink-sql-runner:0.1.0
 
 # Download Gravitino Flink connector and add it to Flink's lib directory
 RUN wget -O /opt/flink/lib/gravitino-flink-connector-1.0.0.jar \
-    https://repo1.maven.org/maven2/org/apache/gravitino/gravitino-flink-connector-runtime-1.18_2.12/1.0.0/gravitino-flink-connector-runtime-1.18_2.12-1.0.0.jar
+    https://repo1.maven.org/maven2/org/apache/gravitino/gravitino-flink-connector-runtime-1.18_2.12/1.0.1/gravitino-flink-connector-runtime-1.18_2.12-1.0.1.jar
 
 # Download Flink JDBC connector and add it to Flink's lib directory
 RUN wget  -O /opt/flink/lib/flink-connector-jdbc-3.2.0-1.18.jar \
