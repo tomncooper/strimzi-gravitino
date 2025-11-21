@@ -7,10 +7,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 # Configuration
-GRAVITINO_VERSION="${1:-v1.0.0}"
+GRAVITINO_VERSION="${1:-v1.0.1}"
 
 # Create temporary directory for status tracking
 STATUS_DIR=$(mktemp -d)
+
+# Capture script start time
+SCRIPT_START_TIME=$(date +%s)
 
 echo -e "${BLUE}===============================================${NC}"
 echo -e "${BLUE}Gravitino Demo Environment Installation Script ${NC}"
@@ -39,6 +42,8 @@ echo ""
 install_gravitino() {
     local status_file="${STATUS_DIR}/gravitino"
     local log_file="${STATUS_DIR}/gravitino.log"
+    local timing_file="${STATUS_DIR}/gravitino.time"
+    local start_time=$(date +%s)
     {
         echo "[Gravitino] Starting installation..."
 
@@ -84,7 +89,10 @@ install_gravitino() {
         }
 
         echo "SUCCESS" > "$status_file"
-        echo "[Gravitino] ✓ Installed successfully"
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "$duration" > "$timing_file"
+        echo "[Gravitino] ✓ Installed successfully (${duration}s)"
         return 0
     } &> "$log_file"
 }
@@ -93,6 +101,8 @@ install_gravitino() {
 install_kafka() {
     local status_file="${STATUS_DIR}/kafka"
     local log_file="${STATUS_DIR}/kafka.log"
+    local timing_file="${STATUS_DIR}/kafka.time"
+    local start_time=$(date +%s)
     {
         echo "[Kafka] Starting installation..."
 
@@ -129,7 +139,10 @@ install_kafka() {
         }
 
         echo "SUCCESS" > "$status_file"
-        echo "[Kafka] ✓ Installed successfully"
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "$duration" > "$timing_file"
+        echo "[Kafka] ✓ Installed successfully (${duration}s)"
         return 0
     } &> "$log_file"
 }
@@ -138,6 +151,8 @@ install_kafka() {
 install_minio() {
     local status_file="${STATUS_DIR}/minio"
     local log_file="${STATUS_DIR}/minio.log"
+    local timing_file="${STATUS_DIR}/minio.time"
+    local start_time=$(date +%s)
     {
         echo "[MinIO] Starting installation..."
 
@@ -207,7 +222,10 @@ install_minio() {
         echo "[MinIO] Buckets created successfully (test-bucket, product-csvs, iceberg-warehouse)"
 
         echo "SUCCESS" > "$status_file"
-        echo "[MinIO] ✓ Installed successfully"
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "$duration" > "$timing_file"
+        echo "[MinIO] ✓ Installed successfully (${duration}s)"
         return 0
     } &> "$log_file"
 }
@@ -216,6 +234,8 @@ install_minio() {
 install_postgres() {
     local status_file="${STATUS_DIR}/postgres"
     local log_file="${STATUS_DIR}/postgres.log"
+    local timing_file="${STATUS_DIR}/postgres.time"
+    local start_time=$(date +%s)
     {
         echo "[PostgreSQL] Starting installation..."
 
@@ -244,7 +264,10 @@ install_postgres() {
         }
 
         echo "SUCCESS" > "$status_file"
-        echo "[PostgreSQL] ✓ Installed successfully"
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "$duration" > "$timing_file"
+        echo "[PostgreSQL] ✓ Installed successfully (${duration}s)"
         return 0
     } &> "$log_file"
 }
@@ -253,6 +276,8 @@ install_postgres() {
 install_apicurio() {
     local status_file="${STATUS_DIR}/apicurio"
     local log_file="${STATUS_DIR}/apicurio.log"
+    local timing_file="${STATUS_DIR}/apicurio.time"
+    local start_time=$(date +%s)
     {
         echo "[Apicurio] Starting installation..."
 
@@ -277,7 +302,10 @@ install_apicurio() {
         }
 
         echo "SUCCESS" > "$status_file"
-        echo "[Apicurio] ✓ Installed successfully"
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        echo "$duration" > "$timing_file"
+        echo "[Apicurio] ✓ Installed successfully (${duration}s)"
         return 0
     } &> "$log_file"
 }
@@ -288,7 +316,6 @@ echo -e "${BLUE}===========================================================${NC}
 echo ""
 
 echo -e "${YELLOW}Installation logs:${NC}"
-echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
 echo -e "  Kafka:      ${STATUS_DIR}/kafka.log"
 echo -e "  MinIO:      ${STATUS_DIR}/minio.log"
 echo -e "  PostgreSQL: ${STATUS_DIR}/postgres.log"
@@ -316,6 +343,8 @@ wait $PID_KAFKA $PID_MINIO $PID_POSTGRES $PID_APICURIO
 
 echo -e "${YELLOW}Installing Gravitino...${NC}"
 echo ""
+echo -e "${YELLOW}Installation logs:${NC}"
+echo -e "  Gravitino:  ${STATUS_DIR}/gravitino.log"
 
 install_gravitino
 
@@ -325,44 +354,68 @@ echo -e "${BLUE}Installation Summary${NC}"
 echo -e "${BLUE}===========================================================${NC}"
 echo ""
 
+# Helper function to format duration
+format_duration() {
+    local seconds=$1
+    if [ $seconds -ge 60 ]; then
+        local minutes=$((seconds / 60))
+        local remaining_seconds=$((seconds % 60))
+        echo "${minutes}m ${remaining_seconds}s"
+    else
+        echo "${seconds}s"
+    fi
+}
+
 # Check results
 FAILED_COMPONENTS=()
 
-if [ -f "${STATUS_DIR}/gravitino" ] && [ "$(cat "${STATUS_DIR}"/gravitino)" == "SUCCESS" ]; then
-    echo -e "${GREEN}✓ Gravitino: SUCCESS${NC}"
-else
-    echo -e "${RED}✗ Gravitino: FAILED${NC}"
-    FAILED_COMPONENTS+=("Gravitino")
-fi
-
 if [ -f "${STATUS_DIR}/kafka" ] && [ "$(cat "${STATUS_DIR}"/kafka)" == "SUCCESS" ]; then
-    echo -e "${GREEN}✓ Kafka: SUCCESS${NC}"
+    KAFKA_TIME=$(cat "${STATUS_DIR}/kafka.time" 2>/dev/null || echo "0")
+    echo -e "${GREEN}✓ Kafka: SUCCESS ($(format_duration $KAFKA_TIME))${NC}"
 else
     echo -e "${RED}✗ Kafka: FAILED${NC}"
     FAILED_COMPONENTS+=("Kafka")
 fi
 
 if [ -f "${STATUS_DIR}/minio" ] && [ "$(cat "${STATUS_DIR}"/minio)" == "SUCCESS" ]; then
-    echo -e "${GREEN}✓ MinIO: SUCCESS${NC}"
+    MINIO_TIME=$(cat "${STATUS_DIR}/minio.time" 2>/dev/null || echo "0")
+    echo -e "${GREEN}✓ MinIO: SUCCESS ($(format_duration $MINIO_TIME))${NC}"
 else
     echo -e "${RED}✗ MinIO: FAILED${NC}"
     FAILED_COMPONENTS+=("MinIO")
 fi
 
 if [ -f "${STATUS_DIR}/postgres" ] && [ "$(cat "${STATUS_DIR}"/postgres)" == "SUCCESS" ]; then
-    echo -e "${GREEN}✓ PostgreSQL: SUCCESS${NC}"
+    POSTGRES_TIME=$(cat "${STATUS_DIR}/postgres.time" 2>/dev/null || echo "0")
+    echo -e "${GREEN}✓ PostgreSQL: SUCCESS ($(format_duration $POSTGRES_TIME))${NC}"
 else
     echo -e "${RED}✗ PostgreSQL: FAILED${NC}"
     FAILED_COMPONENTS+=("PostgreSQL")
 fi
 
 if [ -f "${STATUS_DIR}/apicurio" ] && [ "$(cat "${STATUS_DIR}"/apicurio)" == "SUCCESS" ]; then
-    echo -e "${GREEN}✓ Apicurio: SUCCESS${NC}"
+    APICURIO_TIME=$(cat "${STATUS_DIR}/apicurio.time" 2>/dev/null || echo "0")
+    echo -e "${GREEN}✓ Apicurio: SUCCESS ($(format_duration $APICURIO_TIME))${NC}"
 else
     echo -e "${RED}✗ Apicurio: FAILED${NC}"
     FAILED_COMPONENTS+=("Apicurio")
 fi
 
+if [ -f "${STATUS_DIR}/gravitino" ] && [ "$(cat "${STATUS_DIR}"/gravitino)" == "SUCCESS" ]; then
+    GRAVITINO_TIME=$(cat "${STATUS_DIR}/gravitino.time" 2>/dev/null || echo "0")
+    echo -e "${GREEN}✓ Gravitino: SUCCESS ($(format_duration $GRAVITINO_TIME))${NC}"
+else
+    echo -e "${RED}✗ Gravitino: FAILED${NC}"
+    FAILED_COMPONENTS+=("Gravitino")
+fi
+
+echo ""
+
+# Calculate total time
+SCRIPT_END_TIME=$(date +%s)
+TOTAL_DURATION=$((SCRIPT_END_TIME - SCRIPT_START_TIME))
+
+echo -e "${BLUE}Total installation time: $(format_duration $TOTAL_DURATION)${NC}"
 echo ""
 
 # Report final status
