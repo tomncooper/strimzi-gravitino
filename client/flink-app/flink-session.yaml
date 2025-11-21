@@ -1,0 +1,24 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: session-cluster
+spec:
+  image: flink-sql-runner-gravitino:latest
+  imagePullPolicy: Never
+  flinkVersion: v1_20
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "2"
+    table.catalog-store.kind: gravitino
+    table.catalog-store.gravitino.gravitino.metalake: demolake
+    table.catalog-store.gravitino.gravitino.uri: http://gravitino.metadata.svc.cluster.local:8090
+    table.catalog-store.gravitino.gravitino.client.socketTimeoutMs: 60000
+    table.catalog-store.gravitino.gravitino.client.connectionTimeoutMs: 60000
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: "2048m"
+      cpu: 1
+  taskManager:
+    resource:
+      memory: "2048m"
+      cpu: 2
