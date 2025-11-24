@@ -75,7 +75,7 @@ else
         "comment": "Product inventory table",
         "columns": [
             {
-                "name": "id",
+                "name": "product_id",
                 "type": "integer",
                 "comment": "Product ID",
                 "nullable": false
@@ -87,15 +87,15 @@ else
                 "nullable": false
             },
             {
-                "name": "price",
+                "name": "stock",
                 "type": "integer",
-                "comment": "Product price",
+                "comment": "Product stock level",
                 "nullable": false
             },
             {
-                "name": "quantity",
+                "name": "rating",
                 "type": "integer",
-                "comment": "Product quantity",
+                "comment": "Product rating out of 10",
                 "nullable": false
             }
         ]
