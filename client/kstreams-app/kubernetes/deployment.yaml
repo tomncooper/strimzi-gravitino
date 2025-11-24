@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-recommendation
+  namespace: product-recommendation
+  labels:
+    app: product-recommendation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-recommendation
+  template:
+    metadata:
+      labels:
+        app: product-recommendation
+    spec:
+      initContainers:
+        - name: setup-truststore
+          image: localhost/product-recommendation:1.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Setting up JVM truststore with Kubernetes CA certificate..."
+
+              # Copy default cacerts to shared volume
+              cp $JAVA_HOME/lib/security/cacerts /truststore/cacerts
+
+              # Import Kubernetes CA certificate
+              K8S_CA_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              if [ -f "$K8S_CA_CERT" ]; then
+                keytool -importcert -noprompt \
+                  -keystore /truststore/cacerts \
+                  -storepass changeit \
+                  -alias kubernetes-ca \
+                  -file "$K8S_CA_CERT" 2>/dev/null || echo "Certificate may already exist or import failed"
+                echo "Kubernetes CA certificate imported successfully"
+              else
+                echo "WARNING: Kubernetes CA certificate not found at $K8S_CA_CERT"
+              fi
+
+              echo "Truststore setup complete"
+              ls -lh /truststore/
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+      containers:
+        - name: product-recommendation
+          image: localhost/product-recommendation:1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # JVM truststore configuration
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+
+            # Gravitino configuration
+            - name: GRAVITINO_SERVER_URI
+              value: "http://gravitino.metadata.svc.cluster.local:8090"
+
+            # Apicurio Registry configuration
+            - name: APICURIO_REGISTRY_URL
+              value: "http://apicurio-registry-service.registry.svc:8080/apis/registry/v2"
+
+            # S3/MinIO credentials from Kubernetes secret
+            # Reference the existing gravitino-minio-credentials secret from metadata namespace
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: secret-key
+
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+              readOnly: true
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+          # Liveness probe - checks if application is alive
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - -f
+                - product-recommendation
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe - checks if application is ready to serve traffic
+          readinessProbe:
+            exec:
+              command:
+                - pgrep
+                - -f
+                - product-recommendation
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: truststore
+          emptyDir: {}
+
+      restartPolicy: Always
