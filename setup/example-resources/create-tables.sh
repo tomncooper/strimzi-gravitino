@@ -51,14 +51,13 @@ psql << 'EOF'
 DROP TABLE IF EXISTS product_inventory;
 
 CREATE TABLE product_inventory (
-    id INTEGER PRIMARY KEY,
+    product_id INTEGER PRIMARY KEY,
     category VARCHAR(50) NOT NULL,
-    price INTEGER NOT NULL,
-    quantity INTEGER NOT NULL
+    stock INTEGER NOT NULL,
+    rating INTEGER NOT NULL
 );
 
 CREATE INDEX idx_category ON product_inventory(category);
-CREATE INDEX idx_price ON product_inventory(price);
 EOF
 
 echo -e "${GREEN}✓ product_inventory table created${NC}"
@@ -79,8 +78,7 @@ psql << 'EOF'
 SELECT
     category,
     COUNT(*) as product_count,
-    AVG(price)::INTEGER as avg_price,
-    AVG(quantity)::INTEGER as avg_quantity
+    AVG(rating)::INTEGER as avg_rating
 FROM product_inventory
 GROUP BY category
 ORDER BY category;
