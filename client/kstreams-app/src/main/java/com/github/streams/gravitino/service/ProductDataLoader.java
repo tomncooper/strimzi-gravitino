@@ -123,8 +123,8 @@ public class ProductDataLoader {
                     try {
                         String productId = row[0].trim();
                         String category = row[1].trim();
-                        int stock = Integer.parseInt(row[2].trim());    // price -> stock
-                        int rating = Integer.parseInt(row[3].trim());   // quantity -> rating
+                        int stock = Integer.parseInt(row[2].trim());
+                        int rating = Integer.parseInt(row[3].trim());
 
                         ProductInventory product = new ProductInventory(productId, category, stock, rating);
                         productCache.put(productId, product);
